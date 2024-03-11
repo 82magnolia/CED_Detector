@@ -25,7 +25,6 @@
 #include <pcl/search/impl/kdtree.hpp>  // needed for custom L1/L2 distance; skip PCL_NO_PRECOMPILE
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/kdtree/impl/kdtree_flann.hpp>  // needed for custom L1/L2 distance
-#include <teaser/registration.h>
 #include <yaml-cpp/yaml.h>
 
 #include "sift_xyzrgbn.h"
@@ -73,9 +72,6 @@ class Perception
     void featureMatching (const KeypointPtr& src_keypoint, const KeypointPtr& tgt_keypoint,
                           const FeaturePtr& src_feature, const FeaturePtr& tgt_feature,
                           Eigen::Matrix3Xd& src_cloud, Eigen::Matrix3Xd& tgt_cloud);
-    void teaserRegistration (const Eigen::Matrix3Xd& src_cloud, const Eigen::Matrix3Xd& tgt_cloud,
-                             Eigen::Matrix4f& transformation);
-
     void visualizeKeypoints (const PointCloudPtr& cloud, const KeypointPtr& keypoint);
     void visualizeRegistration (const PointCloudPtr& source, const PointCloudPtr& source_transformed,
                                 const PointCloudPtr& target);

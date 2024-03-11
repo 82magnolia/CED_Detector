@@ -1,4 +1,5 @@
 #include "perception.h"
+#include <pcl/io/ply_io.h>
 
 using PointT = pcl::PointXYZRGBNormal;
 using FeatureT = pcl::PFHRGBSignature250;
@@ -24,7 +25,7 @@ int main(int argc, char** argv) {
   // prepare point clouds
   pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>);
   pcl::PointCloud<PointT>::Ptr keypoint (new pcl::PointCloud<PointT>);
-  if (pcl::io::loadPCDFile (src_filename, *cloud) == -1)
+  if (pcl::io::loadPLYFile (src_filename, *cloud) == -1)
     return 0;
   else if (perception_node["verbose"].as<bool> ())
     std::cout << "Loaded " << cloud->size() << " points for source cloud" << std::endl;

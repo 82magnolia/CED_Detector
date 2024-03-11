@@ -1,18 +1,11 @@
 # config for test_keypoint.cpp
 test_kp_config:
-  keypoint_method: "ced6d"  # options: random, iss, sift, harris3d, harris6d, ced3d, ced6d
+  keypoint_method: "ced3d"  # options: random, iss, sift, harris3d, harris6d, ced3d, ced6d
   log_filename: "../results/keypoint_log.csv"
-  source_cloud: "../data/redwood_scan/loft/mesh_240.pcd"
+  source_cloud: "../data/B07B7N6JH3.ply"  # "../data/redwood_scan/loft/mesh_240.pcd"
   save_cloud_to_file: "../results/cloud.pcd"
   save_keypoint_to_file: "../results/keypoint.pcd"
   pcl_visualization: false
-
-# config for test_registration.cpp
-test_reg_config:
-  keypoint_method: "ced6d"  # options: random, iss, sift, harris3d, harris6d, ced3d, ced6d
-  log_filename: "../results/registration_log.csv"
-  source_cloud: "../data/redwood_scan/loft/mesh_240.pcd"
-  target_cloud: "../data/redwood_scan/loft/mesh_242.pcd"
 
 # config for perception.h
 perception_config:

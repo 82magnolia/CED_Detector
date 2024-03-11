@@ -10,7 +10,6 @@ endif ()
 
 find_package(Eigen3 REQUIRED)
 find_package(PCL 1.8 REQUIRED)
-find_package(teaserpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 include_directories(
@@ -23,7 +22,5 @@ include_directories(
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-add_executable (test_registration src/test_registration.cpp)
-target_link_libraries (test_registration ${PCL_LIBRARIES} ${YAML_CPP_LIBRARIES} teaserpp::teaser_registration)
 add_executable (test_keypoint src/test_keypoint.cpp)
 target_link_libraries (test_keypoint ${PCL_LIBRARIES} ${YAML_CPP_LIBRARIES})

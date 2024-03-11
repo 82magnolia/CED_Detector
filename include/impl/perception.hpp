@@ -298,30 +298,6 @@ void my::Perception<FeatureT>::featureMatching (const KeypointPtr& src_keypoint,
 
 
 template <typename FeatureT>
-void my::Perception<FeatureT>::teaserRegistration (const Eigen::Matrix3Xd& src_cloud,
-                                                   const Eigen::Matrix3Xd& tgt_cloud,
-                                                   Eigen::Matrix4f& transformation) {
-  timingStart();
-  // Prepare solver parameters
-  teaser::RobustRegistrationSolver::Params params;
-  params.estimate_scaling = false;
-  params.rotation_max_iterations = 100;
-  params.rotation_gnc_factor = 1.4;
-  params.rotation_estimation_algorithm = teaser::RobustRegistrationSolver::ROTATION_ESTIMATION_ALGORITHM::GNC_TLS;
-  params.rotation_cost_threshold = 0.005;
-
-  // Solve with TEASER++
-  teaser::RobustRegistrationSolver solver(params);
-  solver.solve(src_cloud, tgt_cloud);
-  auto solution = solver.getSolution();
-  transformation.topLeftCorner(3, 3) = solution.rotation.cast<float>();
-  transformation.topRightCorner(3, 1) = solution.translation.cast<float>();
-  if (verbose_) std::cout << "Estimated transformation " << std::endl << transformation << std::endl;
-  if (logging_) log_ << "teaserRegistration, " << timingEnd() << ", ";
-}
-
-
-template <typename FeatureT>
 void my::Perception<FeatureT>::visualizeKeypoints (const PointCloudPtr& cloud, const KeypointPtr& keypoint) {
   // Add point clouds to the viewer
   pcl::visualization::PCLVisualizer visualizer;
