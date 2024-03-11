@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import os
 import open3d as o3d
+import argparse
+
 
 def keypoints_to_spheres(keypoints):
     spheres = o3d.geometry.TriangleMesh()
@@ -12,12 +14,20 @@ def keypoints_to_spheres(keypoints):
     return spheres
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_fps", type=int, default=-1, help="Optional number of points to keep after farthest point sampling")
+    parser.add_argument("--config", default="../config/config.yaml", help=".yaml file to use for configuring keypoint extraction")
+    args = parser.parse_args()
+
     if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines
         del os.environ['SVGA_VGPU10']  # remove it to launch Open3D visualizer properly
 
-    os.system('../build/test_keypoint ../config/config.yaml')
+    os.system(f'../build/test_keypoint {args.config}')
     
     cloud = o3d.io.read_point_cloud("../results/cloud.ply")
     keypoints = o3d.io.read_point_cloud("../results/keypoint.ply")
+
+    if args.num_fps != -1:
+        keypoints = keypoints.farthest_point_down_sample(num_samples=args.num_fps)
 
     o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(keypoints)])
