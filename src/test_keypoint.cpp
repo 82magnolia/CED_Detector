@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
   if (pcl_visualization)  // not recommended; better to use Open3D for keypoint visualization
     perception.visualizeKeypoints (cloud, keypoint);
   else {
-    pcl::io::savePCDFile (save_cloud_to_file, *cloud);
-    pcl::io::savePCDFile (save_keypoint_to_file, *keypoint);
+    pcl::io::savePLYFile (save_cloud_to_file, *cloud);
+    pcl::io::savePLYFile (save_keypoint_to_file, *keypoint);
   }
 }

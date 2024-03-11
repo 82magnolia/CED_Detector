@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     os.system('../build/test_keypoint ../config/config.yaml')
     
-    cloud = o3d.io.read_point_cloud("../results/cloud.pcd")
-    keypoints = o3d.io.read_point_cloud("../results/keypoint.pcd")
+    cloud = o3d.io.read_point_cloud("../results/cloud.ply")
+    keypoints = o3d.io.read_point_cloud("../results/keypoint.ply")
 
     o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(keypoints)])
