@@ -77,7 +77,7 @@ def generate_contract_box_points(model, num_split):
     return merged_box_pcd
 
 
-def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn'):  # Sample points near multi-height boxes
+def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_angle_thres=0.):  # Sample points near multi-height boxes
     # key_pcd stores keypoints and full_pcd stores the full point cloud
     merged_box_pcd = generate_contract_box_points(full_pcd, num_split)
     merged_box_np = np.asarray(merged_box_pcd.points)
@@ -119,7 +119,16 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn'):  # Sa
                     contour_np = np.zeros([contour_xz.shape[0], 3])
                     contour_np[:, [0, 2]] = contour_xz
                     contour_np[:, 1] = y_point
-                    contour_points.append(contour_np)
+                    contour_np = contour_np[:-1]  # Last point is equal to first point in alphashapes
+
+                    if valid_angle_thres > 0.:
+                        # Remove points on lines
+                        diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
+                        diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
+                        diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
+                        diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
+                        diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
+                        contour_points.append(contour_np[diff_angle < valid_angle_thres])
                 else:
                     alpha_shape = alphashape.alphashape(inlier_np_xz, 0.0)  # Second attempt with convex hull
                     if alpha_shape.geom_type == 'Polygon':  # Convex hull success
@@ -127,7 +136,16 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn'):  # Sa
                         contour_np = np.zeros([contour_xz.shape[0], 3])
                         contour_np[:, [0, 2]] = contour_xz
                         contour_np[:, 1] = y_point
-                        contour_points.append(contour_np)
+                        contour_np = contour_np[:-1]  # Last point is equal to first point in alphashapes
+
+                        if valid_angle_thres > 0.:
+                            # Remove points on lines
+                            diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
+                            diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
+                            diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
+                            diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
+                            diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
+                            contour_points.append(contour_np[diff_angle < valid_angle_thres])
                     elif alpha_shape.geom_type == 'Point':
                         contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
                         contour_np = np.zeros([contour_xz.shape[0], 3])
