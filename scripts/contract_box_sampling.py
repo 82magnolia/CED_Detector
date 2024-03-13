@@ -1,6 +1,8 @@
 import open3d as o3d
 import numpy as np
 import alphashape
+from scipy.sparse.csgraph import connected_components
+from rdp import rdp
 
 
 def generate_contract_box_points(model, num_split):
@@ -77,6 +79,91 @@ def generate_contract_box_points(model, num_split):
     return merged_box_pcd
 
 
+def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
+    # bin_y is the midpoint value of the height bin considered
+    bin_kpts_xz = bin_kpts[:, [0, 2]]
+    alpha_shape = alphashape.alphashape(bin_kpts_xz, 2.0)  # First attempt with concave hull
+    rdp_epsilon = 0.2  # Parameter for curve simplification to remove highly circular regions (Ramer–Douglas–Peucker algorithm)
+    if not alpha_shape.is_empty:
+        if alpha_shape.geom_type == 'Polygon':  # Concave hull success
+            contour_xz = np.stack([alpha_shape.exterior.coords.xy[0], alpha_shape.exterior.coords.xy[1]], axis=1)
+            contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes            
+            ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
+            ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
+
+            # Swap endpoints to farthest points
+            contour_xz[[0, ep_idx0], :] = contour_xz[[ep_idx0, 0], :]
+            contour_xz[[-1, ep_idx1], :] = contour_xz[[ep_idx1, -1], :]
+
+            contour_xz = rdp(contour_xz, rdp_epsilon)
+            contour_np = np.zeros([contour_xz.shape[0], 3])
+            contour_np[:, [0, 2]] = contour_xz
+            contour_np[:, 1] = bin_y
+
+            # TODO: We need to think of a way to make the ordering work (currently, the swapping above is causing problems)
+            if valid_angle_thres > 0.:
+                # Remove points on lines
+                diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
+                diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
+                diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
+                diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
+                diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
+                contour_np = contour_np[diff_angle < valid_angle_thres]
+            
+            dists = np.linalg.norm(contour_np[:, None, :] - bin_kpts[None, :, :], axis=-1)
+            contour_np = bin_kpts[dists.argmin(1)]
+        else:
+            alpha_shape = alphashape.alphashape(bin_kpts_xz, 0.0)  # Second attempt with convex hull
+            if alpha_shape.geom_type == 'Polygon':  # Convex hull success
+                contour_xz = np.stack([alpha_shape.exterior.coords.xy[0], alpha_shape.exterior.coords.xy[1]], axis=1)
+                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes            
+                ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
+                ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
+                
+                # Swap endpoints to farthest points
+                contour_xz[[0, ep_idx0], :] = contour_xz[[ep_idx0, 0], :]
+                contour_xz[[-1, ep_idx1], :] = contour_xz[[ep_idx1, -1], :]
+                
+                contour_xz = rdp(contour_xz, rdp_epsilon)
+                contour_np = np.zeros([contour_xz.shape[0], 3])
+                contour_np[:, [0, 2]] = contour_xz
+                contour_np[:, 1] = bin_y
+
+                if valid_angle_thres > 0.:
+                    # Remove points on lines
+                    diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
+                    diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
+                    diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
+                    diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
+                    diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
+                    contour_np = contour_np[diff_angle < valid_angle_thres]
+
+                dists = np.linalg.norm(contour_np[:, None, :] - bin_kpts[None, :, :], axis=-1)
+                contour_np = bin_kpts[dists.argmin(1)]
+            elif alpha_shape.geom_type == 'Point':
+                contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
+                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes            
+                ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
+                ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
+                
+                # Swap endpoints to farthest points
+                contour_xz[[0, ep_idx0], :] = contour_xz[[ep_idx0, 0], :]
+                contour_xz[[-1, ep_idx1], :] = contour_xz[[ep_idx1, -1], :]
+                
+                contour_xz = rdp(contour_xz, rdp_epsilon)
+                contour_np = np.zeros([contour_xz.shape[0], 3])
+                contour_np[:, [0, 2]] = contour_xz
+                contour_np[:, 1] = bin_y
+
+                dists = np.linalg.norm(contour_np[:, None, :] - bin_kpts[None, :, :], axis=-1)
+                contour_np = bin_kpts[dists.argmin(1)]
+            else:
+                contour_np = bin_kpts
+    else:
+        contour_np = bin_kpts
+    return contour_np
+
+
 def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_angle_thres=0., return_level=False):  # Sample points near multi-height boxes
     # key_pcd stores keypoints and full_pcd stores the full point cloud
     merged_box_pcd = generate_contract_box_points(full_pcd, num_split)
@@ -115,64 +202,65 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
                 inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres * 2) & (key_np[:, 1] >= y_point - inlier_y_thres * 2)]
             else:
                 inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres) & (key_np[:, 1] >= y_point - inlier_y_thres)]
-            inlier_np_xz = inlier_np[:, [0, 2]]
-            alpha_shape = alphashape.alphashape(inlier_np_xz, 2.0)  # First attempt with concave hull
-
-            if not alpha_shape.is_empty:
-                if alpha_shape.geom_type == 'Polygon':  # Concave hull success
-                    contour_xz = np.stack([alpha_shape.exterior.coords.xy[0], alpha_shape.exterior.coords.xy[1]], axis=1)
-                    contour_np = np.zeros([contour_xz.shape[0], 3])
-                    contour_np[:, [0, 2]] = contour_xz
-                    contour_np[:, 1] = y_point
-                    contour_np = contour_np[:-1]  # Last point is equal to first point in alphashapes
-
-                    if valid_angle_thres > 0.:
-                        # Remove points on lines
-                        diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
-                        diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
-                        diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
-                        diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
-                        diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
-                        contour_np = contour_np[diff_angle < valid_angle_thres]
-                    
-                    dists = np.linalg.norm(contour_np[:, None, :] - key_np[None, :, :], axis=-1)
-                    contour_np = key_np[dists.argmin(1)]
-                    contour_points.append(contour_np)
-                else:
-                    alpha_shape = alphashape.alphashape(inlier_np_xz, 0.0)  # Second attempt with convex hull
-                    if alpha_shape.geom_type == 'Polygon':  # Convex hull success
-                        contour_xz = np.stack([alpha_shape.exterior.coords.xy[0], alpha_shape.exterior.coords.xy[1]], axis=1)
-                        contour_np = np.zeros([contour_xz.shape[0], 3])
-                        contour_np[:, [0, 2]] = contour_xz
-                        contour_np[:, 1] = y_point
-                        contour_np = contour_np[:-1]  # Last point is equal to first point in alphashapes
-
-                        if valid_angle_thres > 0.:
-                            # Remove points on lines
-                            diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
-                            diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
-                            diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
-                            diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
-                            diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
-                            contour_np = contour_np[diff_angle < valid_angle_thres]
-
-                        dists = np.linalg.norm(contour_np[:, None, :] - key_np[None, :, :], axis=-1)
-                        contour_np = key_np[dists.argmin(1)]
-                        contour_points.append(contour_np)
-                    elif alpha_shape.geom_type == 'Point':
-                        contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
-                        contour_np = np.zeros([contour_xz.shape[0], 3])
-                        contour_np[:, [0, 2]] = contour_xz
-                        contour_np[:, 1] = y_point
-
-                        dists = np.linalg.norm(contour_np[:, None, :] - key_np[None, :, :], axis=-1)
-                        contour_np = key_np[dists.argmin(1)]
-                        contour_points.append(contour_np)
-                    else:
-                        contour_points.append(inlier_np)
-            else:
-                contour_points.append(inlier_np)
+            contour_np = extract_alpha(inlier_np, y_point, valid_angle_thres)
+            contour_points.append(contour_np)
             key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * idx)
+
+        contour_points = np.concatenate(contour_points, axis=0)
+        key_pcd = o3d.geometry.PointCloud()
+        key_pcd.points = o3d.utility.Vector3dVector(contour_points)
+        key_pcd.paint_uniform_color((1., 0., 0.))
+        key_levels = np.concatenate(key_levels, axis=0)
+    else:
+        raise NotImplementedError("Other sampling modes not supported")
+
+    if return_level:
+        return key_pcd, key_levels
+    else:
+        return key_pcd
+
+
+def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False):  # Sample points within histograms
+    # key_pcd stores keypoints and full_pcd stores the full point cloud
+    tb_inlier_thres = 0.01
+    tb_max_point_count = 1000
+    full_np = np.asarray(full_pcd.points)
+    key_np = np.asarray(key_pcd.points)
+
+    # First keep top and bottom points from the full point cloud
+    top_np = full_np[(full_np[:, 1] > full_np[:, 1].max() - tb_inlier_thres)]
+    bottom_np = full_np[(full_np[:, 1] < full_np[:, 1].min() + tb_inlier_thres)]
+
+    # Downsample to smaller set of points
+    top_np = top_np[np.random.permutation(top_np.shape[0])[:tb_max_point_count]]
+    bottom_np = bottom_np[np.random.permutation(bottom_np.shape[0])[:tb_max_point_count]]
+
+    # Make histograms for middle regions
+    middle_np = key_np[(key_np[:, 1] < full_np[:, 1].max() - tb_inlier_thres) & (key_np[:, 1] >= full_np[:, 1].min() + tb_inlier_thres)]
+    hist_count, hist_y_points = np.histogram(middle_np[:, 1], bins=num_bins)
+    if sample_mode == 'hist_alpha':
+        valid_bin_thres = 3  # Smallest number of keypoints to consider
+        contour_points = []
+        key_levels = []
+
+        # Process bottom
+        bottom_contour_np = extract_alpha(bottom_np, bottom_np[:, 1].min(), valid_angle_thres)
+        contour_points.append(bottom_contour_np)
+        key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * 0)
+
+        # Process middle
+        valid_hist_idx = np.where(hist_count >= valid_bin_thres)[0]
+        for height, hist_idx in enumerate(valid_hist_idx):
+            inlier_np = key_np[(key_np[:, 1] >= hist_y_points[hist_idx]) & (key_np[:, 1] < hist_y_points[hist_idx + 1])]
+            y_point = (hist_y_points[hist_idx] + hist_y_points[hist_idx + 1]) / 2.
+            contour_np = extract_alpha(inlier_np, y_point, valid_angle_thres)
+            contour_points.append(contour_np)
+            key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * (height + 1))
+        
+        # Process top
+        top_contour_np = extract_alpha(top_np, top_np[:, 1].max(), valid_angle_thres)
+        contour_points.append(top_contour_np)
+        key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * len(valid_hist_idx) + 1)
 
         contour_points = np.concatenate(contour_points, axis=0)
         key_pcd = o3d.geometry.PointCloud()
@@ -249,6 +337,7 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
 
         # Optionally prune lines
         if graph_mode == 'nn_level_prune':
+            # Remove connections if insufficient number of points exist between lines representing the connections
             num_line_steps = 10
             nn_search_size = 0.1
             valid_line_thres = 0.7
@@ -259,8 +348,25 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
             line_points = line_starts * line_steps + line_ends * (1 - line_steps)  # (N_lines, N_steps, 3)
             line_in_vox = full_vox.check_if_included(o3d.utility.Vector3dVector(line_points.reshape(-1, 3)))
             line_in_vox = np.array(line_in_vox).reshape(line_points.shape[0], num_line_steps)  # (N_lines, N_steps)
-            valid_lines = line_in_vox.sum(-1).astype(float) / num_line_steps > valid_line_thres
+            valid_lines = line_in_vox.sum(-1).astype(float) / num_line_steps >= valid_line_thres
             graph_lines = graph_lines[valid_lines]
+
+            # Add back lines for non-connected subgraphs
+            adj_mtx = np.zeros([len(key_pcd.points), len(key_pcd.points)], dtype=int)
+            adj_mtx[graph_lines[:, 0], graph_lines[:, 1]] = 1
+            adj_mtx[graph_lines[:, 1], graph_lines[:, 0]] = 1
+            num_comp, comp_labels = connected_components(adj_mtx, directed=False)
+            largest_comp_idx = np.bincount(comp_labels).argmax()
+            for comp_idx in range(num_comp):
+                if comp_idx == largest_comp_idx:
+                    continue
+                comp_np = key_np[comp_labels == comp_idx]
+                largest_comp_np = key_np[comp_labels == largest_comp_idx]
+                comp_dists = np.linalg.norm(comp_np[:, None, :] - largest_comp_np[None, :, :], axis=-1)  # (N_comp, N_largest)
+                min_comp_idx, min_largest_idx = np.unravel_index(comp_dists.argmin(), comp_dists.shape)
+                comp_line = np.array([[np.where(comp_labels == comp_idx)[0][min_comp_idx],
+                    np.where(comp_labels == largest_comp_idx)[0][min_largest_idx]]], dtype=int)
+                graph_lines = np.concatenate([graph_lines, comp_line])
 
         graph_model.lines = o3d.utility.Vector2iVector(graph_lines)
     elif graph_mode == 'alpha_shape':
