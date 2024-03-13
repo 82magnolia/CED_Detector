@@ -77,7 +77,7 @@ def generate_contract_box_points(model, num_split):
     return merged_box_pcd
 
 
-def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_angle_thres=0.):  # Sample points near multi-height boxes
+def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_angle_thres=0., return_level=False):  # Sample points near multi-height boxes
     # key_pcd stores keypoints and full_pcd stores the full point cloud
     merged_box_pcd = generate_contract_box_points(full_pcd, num_split)
     merged_box_np = np.asarray(merged_box_pcd.points)
@@ -85,32 +85,31 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
         key_np = np.asarray(key_pcd.points)
         dists = np.linalg.norm(merged_box_np[:, None, :] - key_np[None, :, :], axis=-1)
         key_pcd = key_pcd.select_by_index(dists.argmin(1))
+        key_levels = None  # Level array not implemented for nearest neighbor case
     elif sample_mode == 'box_height':
         merged_y_points = np.unique(merged_box_np[:, 1])
         key_np = np.asarray(key_pcd.points)
         inlier_y_thres = 0.05
         inlier_y_points = []
+        key_levels = []
         for idx, y_point in enumerate(merged_y_points):
             if idx == 0 or idx == len(merged_y_points) - 1:  # Double threshold for top & bottom points
                 inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres * 2) & (key_np[:, 1] >= y_point - inlier_y_thres * 2)]
             else:
                 inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres) & (key_np[:, 1] >= y_point - inlier_y_thres)]
             inlier_y_points.append(inlier_np)
+            key_levels.append(np.ones_like(inlier_np[:, 0], dtype=int) * idx)
         inlier_y_points = np.concatenate(inlier_y_points, axis=0)
         key_pcd = o3d.geometry.PointCloud()
         key_pcd.points = o3d.utility.Vector3dVector(inlier_y_points)
-
-        # Remove overlapping points
-        key_dists = key_pcd.compute_nearest_neighbor_distance()
-        valid_ind = np.where(np.asarray(key_dists) > 0.01)[0]
-        key_pcd = key_pcd.select_by_index(valid_ind)
-
         key_pcd.paint_uniform_color((1., 0., 0.))
+        key_levels = np.concatenate(key_levels, axis=0)
     elif sample_mode == 'box_alpha':
         merged_y_points = np.unique(merged_box_np[:, 1])
         key_np = np.asarray(key_pcd.points)
         inlier_y_thres = 0.05
         contour_points = []
+        key_levels = []
         for idx, y_point in enumerate(merged_y_points):
             if idx == 0 or idx == len(merged_y_points) - 1:  # Double threshold for top & bottom points
                 inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres * 2) & (key_np[:, 1] >= y_point - inlier_y_thres * 2)]
@@ -173,12 +172,94 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
                         contour_points.append(inlier_np)
             else:
                 contour_points.append(inlier_np)
+            key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * idx)
 
         contour_points = np.concatenate(contour_points, axis=0)
         key_pcd = o3d.geometry.PointCloud()
         key_pcd.points = o3d.utility.Vector3dVector(contour_points)
         key_pcd.paint_uniform_color((1., 0., 0.))
+        key_levels = np.concatenate(key_levels, axis=0)
     else:
         raise NotImplementedError("Other sampling modes not supported")
 
-    return key_pcd
+    if return_level:
+        return key_pcd, key_levels
+    else:
+        return key_pcd
+
+
+def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init_nn=2, inter_level_init_nn=1):
+    graph_pcd = o3d.geometry.LineSet()
+    graph_pcd.points = key_pcd.points
+    key_np = np.asarray(key_pcd.points)
+    dists = np.linalg.norm(key_np[:, None, :] - key_np[None, :, :], axis=-1)
+    dists[np.diag_indices(key_np.shape[0])] = np.inf
+    if graph_mode == 'nn':
+        topk_idx = np.argsort(dists, axis=1)[:, :init_nn]
+        ref_idx = np.arange(key_np.shape[0])[:, None].repeat(init_nn, axis=1)
+        topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+        topk_pair = topk_pair.reshape(-1, 2)
+        line_idx = topk_pair.tolist()
+        graph_pcd.lines = o3d.utility.Vector2iVector(line_idx)
+    elif graph_mode in ['nn_level', 'nn_level_prune']:
+        assert key_levels is not None
+        max_level = key_levels.max()
+        graph_lines = []
+        for level in range(0, max_level + 1):
+            # Add intra-level connections
+            level_idx = np.where(key_levels == level)[0]
+            level_init_nn = min(level_idx.shape[0], init_nn)
+            level_key_pcd = key_pcd.select_by_index(level_idx)
+            level_key_np = np.asarray(level_key_pcd.points)
+            level_dists = dists[level_idx, :][:, level_idx]
+            topk_idx = np.argsort(level_dists, axis=1)[:, :level_init_nn]
+            topk_idx = np.take(level_idx, topk_idx)
+            ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(level_init_nn, axis=1)
+            ref_idx = np.take(level_idx, ref_idx)
+            topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+            topk_pair = topk_pair.reshape(-1, 2).tolist()
+            graph_lines.extend(list(map(tuple, topk_pair)))
+
+            # Add inter-level connections, both with next & previous levels
+            if level != max_level:
+                next_idx = np.where(key_levels == level + 1)[0]
+                curr_next_dists = dists[level_idx, :][:, next_idx]
+                topk_idx = np.argsort(curr_next_dists, axis=1)[:, :inter_level_init_nn]
+                topk_idx = np.take(next_idx, topk_idx)
+                ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(inter_level_init_nn, axis=1)
+                ref_idx = np.take(level_idx, ref_idx)
+                topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+                topk_pair = topk_pair.reshape(-1, 2).tolist()
+                graph_lines.extend(list(map(tuple, topk_pair)))
+            if level != 0:
+                prev_idx = np.where(key_levels == level - 1)[0]
+                curr_prev_dists = dists[level_idx, :][:, prev_idx]
+                topk_idx = np.argsort(curr_prev_dists, axis=1)[:, :inter_level_init_nn]
+                topk_idx = np.take(prev_idx, topk_idx)
+                ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(inter_level_init_nn, axis=1)
+                ref_idx = np.take(level_idx, ref_idx)
+                topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+                topk_pair = topk_pair.reshape(-1, 2).tolist()
+                graph_lines.extend(list(map(tuple, topk_pair)))
+
+        graph_lines = list(set(graph_lines))  # Remove overlapping lines
+        graph_lines = np.array(graph_lines, dtype=int)
+
+        # Optionally prune lines
+        if graph_mode == 'nn_level_prune':
+            num_line_steps = 10
+            nn_search_size = 0.1
+            valid_line_thres = 0.7
+            full_vox = o3d.geometry.VoxelGrid.create_from_point_cloud(full_pcd, voxel_size=nn_search_size)
+            line_starts = key_np[graph_lines[:, 0], None, :]  # (N_lines, 1, 3)
+            line_ends = key_np[graph_lines[:, 1], None, :]  # (N_lines, 1, 3)
+            line_steps = np.linspace(0., 1., num_line_steps)[None, :, None]  # (1, N_steps, 1)
+            line_points = line_starts * line_steps + line_ends * (1 - line_steps)  # (N_lines, N_steps, 3)
+            line_in_vox = full_vox.check_if_included(o3d.utility.Vector3dVector(line_points.reshape(-1, 3)))
+            line_in_vox = np.array(line_in_vox).reshape(line_points.shape[0], num_line_steps)  # (N_lines, N_steps)
+            valid_lines = line_in_vox.sum(-1).astype(float) / num_line_steps > valid_line_thres
+            graph_lines = graph_lines[valid_lines]
+
+        graph_pcd.lines = o3d.utility.Vector2iVector(graph_lines)
+
+    return graph_pcd
