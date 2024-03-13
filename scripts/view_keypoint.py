@@ -20,7 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_contract_split", type=int, default=-1, help="Optional number of height splits to make for keeping keypoints near bounding boxes")
     parser.add_argument("--config", default="./config/config.yaml", help=".yaml file to use for configuring keypoint extraction")
     parser.add_argument("--box_sample_mode", default="box_nn", help="Type of box sampling")
-    parser.add_argument("--valid_angle_thres", default=150., help="Angle thresholding to use for alphashape-based keypoint filtering")
+    parser.add_argument("--valid_angle_thres", default=150., help="Angle thresholding to use for alphashape-based keypoint filtering", type=float)
     args = parser.parse_args()
 
     if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines

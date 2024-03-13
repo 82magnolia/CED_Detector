@@ -90,8 +90,11 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
         key_np = np.asarray(key_pcd.points)
         inlier_y_thres = 0.05
         inlier_y_points = []
-        for y_point in merged_y_points:
-            inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres) & (key_np[:, 1] >= y_point - inlier_y_thres)]
+        for idx, y_point in enumerate(merged_y_points):
+            if idx == 0 or idx == len(merged_y_points) - 1:  # Double threshold for top & bottom points
+                inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres * 2) & (key_np[:, 1] >= y_point - inlier_y_thres * 2)]
+            else:
+                inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres) & (key_np[:, 1] >= y_point - inlier_y_thres)]
             inlier_y_points.append(inlier_np)
         inlier_y_points = np.concatenate(inlier_y_points, axis=0)
         key_pcd = o3d.geometry.PointCloud()
@@ -108,8 +111,11 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
         key_np = np.asarray(key_pcd.points)
         inlier_y_thres = 0.05
         contour_points = []
-        for y_point in merged_y_points:
-            inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres) & (key_np[:, 1] >= y_point - inlier_y_thres)]
+        for idx, y_point in enumerate(merged_y_points):
+            if idx == 0 or idx == len(merged_y_points) - 1:  # Double threshold for top & bottom points
+                inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres * 2) & (key_np[:, 1] >= y_point - inlier_y_thres * 2)]
+            else:
+                inlier_np = key_np[(key_np[:, 1] < y_point + inlier_y_thres) & (key_np[:, 1] >= y_point - inlier_y_thres)]
             inlier_np_xz = inlier_np[:, [0, 2]]
             alpha_shape = alphashape.alphashape(inlier_np_xz, 2.0)  # First attempt with concave hull
 
@@ -128,7 +134,11 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
                         diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
                         diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
                         diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
-                        contour_points.append(contour_np[diff_angle < valid_angle_thres])
+                        contour_np = contour_np[diff_angle < valid_angle_thres]
+                    
+                    dists = np.linalg.norm(contour_np[:, None, :] - key_np[None, :, :], axis=-1)
+                    contour_np = key_np[dists.argmin(1)]
+                    contour_points.append(contour_np)
                 else:
                     alpha_shape = alphashape.alphashape(inlier_np_xz, 0.0)  # Second attempt with convex hull
                     if alpha_shape.geom_type == 'Polygon':  # Convex hull success
@@ -145,12 +155,19 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
                             diff_to_next = diff_to_next / np.linalg.norm(diff_to_next, axis=-1, keepdims=True)
                             diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
                             diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
-                            contour_points.append(contour_np[diff_angle < valid_angle_thres])
+                            contour_np = contour_np[diff_angle < valid_angle_thres]
+
+                        dists = np.linalg.norm(contour_np[:, None, :] - key_np[None, :, :], axis=-1)
+                        contour_np = key_np[dists.argmin(1)]
+                        contour_points.append(contour_np)
                     elif alpha_shape.geom_type == 'Point':
                         contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
                         contour_np = np.zeros([contour_xz.shape[0], 3])
                         contour_np[:, [0, 2]] = contour_xz
                         contour_np[:, 1] = y_point
+
+                        dists = np.linalg.norm(contour_np[:, None, :] - key_np[None, :, :], axis=-1)
+                        contour_np = key_np[dists.argmin(1)]
                         contour_points.append(contour_np)
                     else:
                         contour_points.append(inlier_np)
