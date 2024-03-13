@@ -189,19 +189,21 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
 
 
 def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init_nn=2, inter_level_init_nn=1):
-    graph_pcd = o3d.geometry.LineSet()
-    graph_pcd.points = key_pcd.points
     key_np = np.asarray(key_pcd.points)
     dists = np.linalg.norm(key_np[:, None, :] - key_np[None, :, :], axis=-1)
     dists[np.diag_indices(key_np.shape[0])] = np.inf
     if graph_mode == 'nn':
+        graph_model = o3d.geometry.LineSet()
+        graph_model.points = key_pcd.points
         topk_idx = np.argsort(dists, axis=1)[:, :init_nn]
         ref_idx = np.arange(key_np.shape[0])[:, None].repeat(init_nn, axis=1)
         topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
         topk_pair = topk_pair.reshape(-1, 2)
         line_idx = topk_pair.tolist()
-        graph_pcd.lines = o3d.utility.Vector2iVector(line_idx)
+        graph_model.lines = o3d.utility.Vector2iVector(line_idx)
     elif graph_mode in ['nn_level', 'nn_level_prune']:
+        graph_model = o3d.geometry.LineSet()
+        graph_model.points = key_pcd.points
         assert key_levels is not None
         max_level = key_levels.max()
         graph_lines = []
@@ -260,6 +262,8 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
             valid_lines = line_in_vox.sum(-1).astype(float) / num_line_steps > valid_line_thres
             graph_lines = graph_lines[valid_lines]
 
-        graph_pcd.lines = o3d.utility.Vector2iVector(graph_lines)
-
-    return graph_pcd
+        graph_model.lines = o3d.utility.Vector2iVector(graph_lines)
+    elif graph_mode == 'alpha_shape':
+        alpha_shape = alphashape.alphashape(np.asarray(key_pcd.points), 0.2)
+        graph_model = alpha_shape.as_open3d
+    return graph_model
