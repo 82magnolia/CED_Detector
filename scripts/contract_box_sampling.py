@@ -83,25 +83,22 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
     # bin_y is the midpoint value of the height bin considered
     bin_kpts_xz = bin_kpts[:, [0, 2]]
     alpha_shape = alphashape.alphashape(bin_kpts_xz, 2.0)  # First attempt with concave hull
-    rdp_epsilon = 0.2  # Parameter for curve simplification to remove highly circular regions (Ramer–Douglas–Peucker algorithm)
+    valid_area_thres = 0.1
+    rdp_epsilon = 0.1  # Parameter for curve simplification to remove highly circular regions (Ramer–Douglas–Peucker algorithm)
     if not alpha_shape.is_empty:
         if alpha_shape.geom_type == 'Polygon':  # Concave hull success
             contour_xz = np.stack([alpha_shape.exterior.coords.xy[0], alpha_shape.exterior.coords.xy[1]], axis=1)
-            contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes            
-            ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
-            ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
-
-            # Swap endpoints to farthest points
-            contour_xz[[0, ep_idx0], :] = contour_xz[[ep_idx0, 0], :]
-            contour_xz[[-1, ep_idx1], :] = contour_xz[[ep_idx1, -1], :]
-
+            contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes
+            if alpha_shape.area < valid_area_thres:  # Polygon close to a line
+                ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
+                ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
+                contour_xz = contour_xz[min(ep_idx0, ep_idx1): max(ep_idx0, ep_idx1) + 1]
             contour_xz = rdp(contour_xz, rdp_epsilon)
             contour_np = np.zeros([contour_xz.shape[0], 3])
             contour_np[:, [0, 2]] = contour_xz
             contour_np[:, 1] = bin_y
 
-            # TODO: We need to think of a way to make the ordering work (currently, the swapping above is causing problems)
-            if valid_angle_thres > 0.:
+            if valid_angle_thres > 0. and contour_np.shape[0] >= 4:  # Apply angle-based validation for sufficiently large contours
                 # Remove points on lines
                 diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
                 diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
@@ -116,20 +113,17 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
             alpha_shape = alphashape.alphashape(bin_kpts_xz, 0.0)  # Second attempt with convex hull
             if alpha_shape.geom_type == 'Polygon':  # Convex hull success
                 contour_xz = np.stack([alpha_shape.exterior.coords.xy[0], alpha_shape.exterior.coords.xy[1]], axis=1)
-                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes            
-                ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
-                ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
-                
-                # Swap endpoints to farthest points
-                contour_xz[[0, ep_idx0], :] = contour_xz[[ep_idx0, 0], :]
-                contour_xz[[-1, ep_idx1], :] = contour_xz[[ep_idx1, -1], :]
-                
+                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes
+                if alpha_shape.area < valid_area_thres:  # Polygon close to a line
+                    ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
+                    ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
+                    contour_xz = contour_xz[min(ep_idx0, ep_idx1): max(ep_idx0, ep_idx1) + 1]
                 contour_xz = rdp(contour_xz, rdp_epsilon)
                 contour_np = np.zeros([contour_xz.shape[0], 3])
                 contour_np[:, [0, 2]] = contour_xz
                 contour_np[:, 1] = bin_y
 
-                if valid_angle_thres > 0.:
+                if valid_angle_thres > 0. and contour_np.shape[0] >= 4:  # Apply angle-based validation for sufficiently large contours
                     # Remove points on lines
                     diff_to_next = contour_np - np.roll(contour_np, 1, axis=0)
                     diff_to_prev = contour_np - np.roll(contour_np, -1, axis=0)
@@ -142,14 +136,11 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
                 contour_np = bin_kpts[dists.argmin(1)]
             elif alpha_shape.geom_type == 'Point':
                 contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
-                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes            
-                ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
-                ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
-                
-                # Swap endpoints to farthest points
-                contour_xz[[0, ep_idx0], :] = contour_xz[[ep_idx0, 0], :]
-                contour_xz[[-1, ep_idx1], :] = contour_xz[[ep_idx1, -1], :]
-                
+                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes
+                if alpha_shape.area < valid_area_thres:  # Polygon close to a line
+                    ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
+                    ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
+                    contour_xz = contour_xz[min(ep_idx0, ep_idx1): max(ep_idx0, ep_idx1) + 1]
                 contour_xz = rdp(contour_xz, rdp_epsilon)
                 contour_np = np.zeros([contour_xz.shape[0], 3])
                 contour_np[:, [0, 2]] = contour_xz
@@ -222,7 +213,7 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
 
 def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False):  # Sample points within histograms
     # key_pcd stores keypoints and full_pcd stores the full point cloud
-    tb_inlier_thres = 0.01
+    tb_inlier_thres = 0.1
     tb_max_point_count = 1000
     full_np = np.asarray(full_pcd.points)
     key_np = np.asarray(key_pcd.points)
@@ -339,8 +330,8 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
         if graph_mode == 'nn_level_prune':
             # Remove connections if insufficient number of points exist between lines representing the connections
             num_line_steps = 10
-            nn_search_size = 0.1
-            valid_line_thres = 0.7
+            nn_search_size = 0.2
+            valid_line_thres = 0.75
             full_vox = o3d.geometry.VoxelGrid.create_from_point_cloud(full_pcd, voxel_size=nn_search_size)
             line_starts = key_np[graph_lines[:, 0], None, :]  # (N_lines, 1, 3)
             line_ends = key_np[graph_lines[:, 1], None, :]  # (N_lines, 1, 3)

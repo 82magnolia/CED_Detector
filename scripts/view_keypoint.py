@@ -25,6 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("--valid_angle_thres", default=150., help="Angle thresholding to use for alphashape-based keypoint filtering", type=float)
     parser.add_argument("--graph_mode", default="nn", help="Mode to use for making object graph")
     parser.add_argument("--init_nn", default=2, help="Number of nearest neighbors to use when creating initial graph", type=int)
+    parser.add_argument("--skip_graph", action="store_true", help="Optionally skip object graph generation")
     args = parser.parse_args()
 
     if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines
@@ -43,8 +44,9 @@ if __name__ == "__main__":
         keypoints, keypoints_levels = sample_hist_points(keypoints, cloud, args.num_hist_bins, args.hist_sample_mode, args.valid_angle_thres, True)
     print(f"Final number of keypoints: {len(keypoints.points)}")
 
-    obj_graph = build_object_graph(keypoints, cloud, keypoints_levels, graph_mode=args.graph_mode, init_nn=args.init_nn)
-    print("Built object graph!")
+    if not args.skip_graph:
+        obj_graph = build_object_graph(keypoints, cloud, keypoints_levels, graph_mode=args.graph_mode, init_nn=args.init_nn)
+        print("Built object graph!")
+        o3d.visualization.draw_geometries([obj_graph, keypoints_to_spheres(keypoints)])
 
     o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(keypoints)])
-    o3d.visualization.draw_geometries([obj_graph, keypoints_to_spheres(keypoints)])
