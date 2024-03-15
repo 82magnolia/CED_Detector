@@ -2,7 +2,7 @@
 test_kp_config:
   keypoint_method: "ced3d"  # options: random, iss, sift, harris3d, harris6d, ced3d, ced6d
   log_filename: "./results/keypoint_log.csv"
-  source_cloud: "./data/table_legged.ply"
+  source_cloud: "./data/chair_legged.ply"
   save_cloud_to_file: "./results/cloud.ply"
   save_keypoint_to_file: "./results/keypoint.ply"
   pcl_visualization: false

@@ -3,6 +3,7 @@ import numpy as np
 import alphashape
 from scipy.sparse.csgraph import connected_components
 from rdp import rdp
+import networkx as nx
 
 
 def generate_contract_box_points(model, num_split):
@@ -289,7 +290,7 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
         for level in range(0, max_level + 1):
             # Add intra-level connections
             level_idx = np.where(key_levels == level)[0]
-            level_init_nn = min(level_idx.shape[0], init_nn)
+            level_init_nn = min(level_idx.shape[0] - 1, init_nn)
             level_key_pcd = key_pcd.select_by_index(level_idx)
             level_key_np = np.asarray(level_key_pcd.points)
             level_dists = dists[level_idx, :][:, level_idx]
@@ -298,7 +299,7 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
             ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(level_init_nn, axis=1)
             ref_idx = np.take(level_idx, ref_idx)
             topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
-            topk_pair = topk_pair.reshape(-1, 2).tolist()
+            topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
             graph_lines.extend(list(map(tuple, topk_pair)))
 
             # Add inter-level connections, both with next & previous levels
@@ -310,7 +311,7 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
                 ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(inter_level_init_nn, axis=1)
                 ref_idx = np.take(level_idx, ref_idx)
                 topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
-                topk_pair = topk_pair.reshape(-1, 2).tolist()
+                topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
                 graph_lines.extend(list(map(tuple, topk_pair)))
             if level != 0:
                 prev_idx = np.where(key_levels == level - 1)[0]
@@ -320,7 +321,7 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
                 ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(inter_level_init_nn, axis=1)
                 ref_idx = np.take(level_idx, ref_idx)
                 topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
-                topk_pair = topk_pair.reshape(-1, 2).tolist()
+                topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
                 graph_lines.extend(list(map(tuple, topk_pair)))
 
         graph_lines = list(set(graph_lines))  # Remove overlapping lines
@@ -363,4 +364,47 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
     elif graph_mode == 'alpha_shape':
         alpha_shape = alphashape.alphashape(np.asarray(key_pcd.points), 0.2)
         graph_model = alpha_shape.as_open3d
+    return graph_model
+
+
+def simplify_graph(graph_model):
+    # graph_model is originally given as a open3d lineset
+    edge_list = np.asarray(graph_model.lines)
+    graph = nx.from_edgelist(edge_list)
+    rm_path_list = []
+    prev_valid = False
+    for edge in nx.dfs_edges(graph):  # Track edges to remove lines from DFS
+        if (graph.degree[edge[0]] == 2 and graph.degree[edge[1]] == 2):
+            if prev_valid:
+                rm_path_list[-1].append(edge)
+            else:
+                rm_path_list.append([])
+                rm_path_list[-1].append(edge)
+                prev_valid = True
+        else:
+            prev_valid = False
+
+    for path in rm_path_list:  # Follow paths and remove edges with both degrees being two (i.e., lines)
+        start_node = path[0][0]
+        end_node = path[-1][-1]
+
+        # Find neighboring nodes to connect
+        for nbor in graph.neighbors(start_node):
+            if nbor != path[0][1]:
+                start_nbor = nbor
+        for nbor in graph.neighbors(end_node):
+            if nbor != path[1][0]:
+                end_nbor = nbor
+        for node in list(set([path[i][0] for i in range(len(path))] + [path[i][1] for i in range(len(path))])):
+            graph.remove_node(node)
+        graph.add_edge(start_nbor, end_nbor)
+
+    graph.remove_edges_from(nx.selfloop_edges(graph))  # Remove self-edges
+    keep_idx = sorted(graph.nodes)
+    keep_graph_pts_np = np.asarray(graph_model.points)[keep_idx]
+    graph = nx.relabel_nodes(graph, mapping={k_idx: order_idx for (k_idx, order_idx) in zip(keep_idx, range(len(keep_idx)))})
+
+    graph_model.points = o3d.utility.Vector3dVector(keep_graph_pts_np)
+    graph_model.lines = o3d.utility.Vector2iVector(np.asarray(graph.edges))
+
     return graph_model

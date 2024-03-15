@@ -2,8 +2,12 @@
 import os
 import open3d as o3d
 import argparse
-from scripts.contract_box_sampling import sample_box_points, sample_hist_points, build_object_graph
-
+from scripts.contract_box_sampling import (
+    sample_box_points, 
+    sample_hist_points, 
+    build_object_graph,
+    simplify_graph
+)
 
 def keypoints_to_spheres(keypoints):
     spheres = o3d.geometry.TriangleMesh()
@@ -26,6 +30,7 @@ if __name__ == "__main__":
     parser.add_argument("--graph_mode", default="nn", help="Mode to use for making object graph")
     parser.add_argument("--init_nn", default=2, help="Number of nearest neighbors to use when creating initial graph", type=int)
     parser.add_argument("--skip_graph", action="store_true", help="Optionally skip object graph generation")
+    parser.add_argument("--simplify_graph", action="store_true", help="Optionally simplify object graph")
     args = parser.parse_args()
 
     if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines
@@ -42,11 +47,16 @@ if __name__ == "__main__":
         keypoints, keypoints_levels = sample_box_points(keypoints, cloud, args.num_contract_split, args.box_sample_mode, args.valid_angle_thres, True)
     if args.num_hist_bins != -1:
         keypoints, keypoints_levels = sample_hist_points(keypoints, cloud, args.num_hist_bins, args.hist_sample_mode, args.valid_angle_thres, True)
-    print(f"Final number of keypoints: {len(keypoints.points)}")
 
     if not args.skip_graph:
         obj_graph = build_object_graph(keypoints, cloud, keypoints_levels, graph_mode=args.graph_mode, init_nn=args.init_nn)
         print("Built object graph!")
-        o3d.visualization.draw_geometries([obj_graph, keypoints_to_spheres(keypoints)])
-
-    o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(keypoints)])
+        
+        if args.simplify_graph:
+            obj_graph = simplify_graph(obj_graph)
+        print(f"Final number of keypoints: {len(obj_graph.points)}")
+        o3d.visualization.draw_geometries([obj_graph, keypoints_to_spheres(obj_graph)])
+        o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(obj_graph)])
+    else:
+        print(f"Final number of keypoints: {len(keypoints.points)}")
+        o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(keypoints)])
