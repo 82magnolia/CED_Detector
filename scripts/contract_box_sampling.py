@@ -4,6 +4,13 @@ import alphashape
 from scipy.sparse.csgraph import connected_components
 from rdp import rdp
 import networkx as nx
+from collections import deque
+
+
+def roll_list(tgt_list, amount):
+    dq = deque(tgt_list)
+    dq.rotate(amount)
+    return list(dq)
 
 
 def generate_contract_box_points(model, num_split):
@@ -214,7 +221,7 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
 
 def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False):  # Sample points within histograms
     # key_pcd stores keypoints and full_pcd stores the full point cloud
-    tb_inlier_thres = 0.1
+    tb_inlier_thres = 0.2
     tb_max_point_count = 1000
     full_np = np.asarray(full_pcd.points)
     key_np = np.asarray(key_pcd.points)
@@ -367,44 +374,80 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
     return graph_model
 
 
-def simplify_graph(graph_model):
-    # graph_model is originally given as a open3d lineset
-    edge_list = np.asarray(graph_model.lines)
-    graph = nx.from_edgelist(edge_list)
-    rm_path_list = []
-    prev_valid = False
-    for edge in nx.dfs_edges(graph):  # Track edges to remove lines from DFS
-        if (graph.degree[edge[0]] == 2 and graph.degree[edge[1]] == 2):
-            if prev_valid:
-                rm_path_list[-1].append(edge)
-            else:
-                rm_path_list.append([])
-                rm_path_list[-1].append(edge)
-                prev_valid = True
-        else:
-            prev_valid = False
+def simplify_graph(graph_model, num_iter=2, remove_deg_two=True, remove_cycle=True, valid_angle_thres=0.):
+    for it in range(num_iter):
+        # graph_model is originally given as a open3d lineset
+        edge_list = np.asarray(graph_model.lines)
+        graph = nx.from_edgelist(edge_list)
 
-    for path in rm_path_list:  # Follow paths and remove edges with both degrees being two (i.e., lines)
-        start_node = path[0][0]
-        end_node = path[-1][-1]
+        if remove_cycle:  # Remove small cycles and merge them to a single node
+            cycles = list(nx.simple_cycles(graph, length_bound=4))  # Only detect small-length cycles
+            rm_cycle_list = []
+            valid_cycle_thres = 0.2  # Average edge length threshold for cycle validation
+            graph_pts_np = np.asarray(graph_model.points)
+            for cycle in cycles:
+                cycle_length = np.linalg.norm(graph_pts_np[cycle] - np.roll(graph_pts_np[cycle], shift=1, axis=0), axis=-1)
+                if cycle_length.mean() < valid_cycle_thres:
+                    rm_cycle_list.append(cycle)
 
-        # Find neighboring nodes to connect
-        for nbor in graph.neighbors(start_node):
-            if nbor != path[0][1]:
-                start_nbor = nbor
-        for nbor in graph.neighbors(end_node):
-            if nbor != path[1][0]:
-                end_nbor = nbor
-        for node in list(set([path[i][0] for i in range(len(path))] + [path[i][1] for i in range(len(path))])):
-            graph.remove_node(node)
-        graph.add_edge(start_nbor, end_nbor)
+            obj_ceil = graph_pts_np[:, 1].max()
+            obj_floor = graph_pts_np[:, 1].min()
+            
+            for cycle in rm_cycle_list:  # Contract nodes in small cycles
+                # Roll cycle so that the first element is the closes to the object floor or ceiling
+                near_ceil_idx = np.abs(graph_pts_np[cycle, 1] - obj_ceil).argmin()
+                near_ceil_dist = np.abs(graph_pts_np[cycle, 1] - obj_ceil).min()
+                near_floor_idx = np.abs(graph_pts_np[cycle, 1] - obj_floor).argmin()
+                near_floor_dist = np.abs(graph_pts_np[cycle, 1] - obj_floor).min()
+                if near_ceil_dist >= near_floor_dist:
+                    roll_amount = -near_floor_idx
+                else:
+                    roll_amount = -near_ceil_idx
+                rolled_cycle = roll_list(cycle, roll_amount)
 
-    graph.remove_edges_from(nx.selfloop_edges(graph))  # Remove self-edges
-    keep_idx = sorted(graph.nodes)
-    keep_graph_pts_np = np.asarray(graph_model.points)[keep_idx]
-    graph = nx.relabel_nodes(graph, mapping={k_idx: order_idx for (k_idx, order_idx) in zip(keep_idx, range(len(keep_idx)))})
+                for idx in range(len(rolled_cycle) - 1, 0, -1):
+                    node = rolled_cycle[idx]
+                    prev_node = rolled_cycle[idx - 1]
+                    if graph.has_node(node) and graph.has_node(prev_node):
+                        graph = nx.contracted_nodes(graph, prev_node, node)
 
-    graph_model.points = o3d.utility.Vector3dVector(keep_graph_pts_np)
-    graph_model.lines = o3d.utility.Vector2iVector(np.asarray(graph.edges))
+            # Update graph model
+            graph.remove_edges_from(nx.selfloop_edges(graph))  # Remove self-edges
+            keep_idx = sorted(graph.nodes)
+            keep_graph_pts_np = np.asarray(graph_model.points)[keep_idx]
+            graph = nx.relabel_nodes(graph, mapping={k_idx: order_idx for (k_idx, order_idx) in zip(keep_idx, range(len(keep_idx)))})
+
+            graph_model.points = o3d.utility.Vector3dVector(keep_graph_pts_np)
+            graph_model.lines = o3d.utility.Vector2iVector(np.asarray(graph.edges))
+
+        if remove_deg_two:  # Remove degree two nodes
+            rm_node_list = []
+            graph_pts_np = np.asarray(graph_model.points)
+            for node in graph.nodes:  # Track nodes with degree two to remove
+                if (graph.degree[node] == 2):
+                    start_nbor, end_nbor = list(graph.neighbors(node))
+                    start_pt = graph_pts_np[start_nbor]
+                    end_pt = graph_pts_np[end_nbor]
+                    curr_pt = graph_pts_np[node]
+                    diff_to_start = (curr_pt - start_pt) / np.linalg.norm(curr_pt - start_pt)
+                    diff_to_end = (curr_pt - end_pt) / np.linalg.norm(curr_pt - end_pt)
+                    diff_angle = np.rad2deg(np.arccos((diff_to_start * diff_to_end).sum(axis=-1)))
+
+                    if diff_angle > valid_angle_thres:  # Only remove large angle nodes
+                        rm_node_list.append(node)
+
+            for node in rm_node_list:  # Remove nodes and re-connect adjacent nodes
+                start_nbor, end_nbor = list(graph.neighbors(node))
+                graph.remove_node(node)
+                graph.add_edge(start_nbor, end_nbor)
+
+            # Update graph model
+            graph.remove_edges_from(nx.selfloop_edges(graph))  # Remove self-edges
+            keep_idx = sorted(graph.nodes)
+            keep_graph_pts_np = graph_pts_np[keep_idx]
+            graph = nx.relabel_nodes(graph, mapping={k_idx: order_idx for (k_idx, order_idx) in zip(keep_idx, range(len(keep_idx)))})
+
+            graph_model.points = o3d.utility.Vector3dVector(keep_graph_pts_np)
+            graph_model.lines = o3d.utility.Vector2iVector(np.asarray(graph.edges))
 
     return graph_model

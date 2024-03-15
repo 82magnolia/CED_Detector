@@ -52,8 +52,8 @@ if __name__ == "__main__":
         obj_graph = build_object_graph(keypoints, cloud, keypoints_levels, graph_mode=args.graph_mode, init_nn=args.init_nn)
         print("Built object graph!")
         
-        if args.simplify_graph:
-            obj_graph = simplify_graph(obj_graph)
+        if args.simplify_graph and len(obj_graph.points) >= 5:  # Only simplify if sufficient points exist in graph
+            obj_graph = simplify_graph(obj_graph, valid_angle_thres=args.valid_angle_thres)
         print(f"Final number of keypoints: {len(obj_graph.points)}")
         o3d.visualization.draw_geometries([obj_graph, keypoints_to_spheres(obj_graph)])
         o3d.visualization.draw_geometries([cloud, keypoints_to_spheres(obj_graph)])
