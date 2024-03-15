@@ -221,10 +221,10 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
 
 def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False):  # Sample points within histograms
     # key_pcd stores keypoints and full_pcd stores the full point cloud
-    tb_inlier_thres = 0.2
-    tb_max_point_count = 1000
     full_np = np.asarray(full_pcd.points)
     key_np = np.asarray(key_pcd.points)
+    tb_inlier_thres = 0.05 * (full_np[:, 1].max() - full_np[:, 1].min())
+    tb_max_point_count = 1000
 
     # First keep top and bottom points from the full point cloud
     top_np = full_np[(full_np[:, 1] > full_np[:, 1].max() - tb_inlier_thres)]
