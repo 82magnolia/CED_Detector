@@ -133,3 +133,15 @@ We hope that you find this work interesting and inspiring, and we would like to 
 IMHO, (multi-spectrum) colored point clouds can be really beneficial to applications such as mapping, place recognition or loop closure.
 
 You are very welcome to contact us or open a new issue in this repository if you have any questions/comments! Discussions on these open problems or future work are also welcome!
+
+
+## 7. Key Commands
+To run without graph simplification, use the following:
+```
+python -m scripts.view_keypoint --config ./config/config.yaml --keypoints_filter None --skip_graph --target_num_points -1
+```
+
+The default option is as follows:
+```
+python -m scripts.view_keypoint --config ./config/config.yaml --simplify_graph
+```

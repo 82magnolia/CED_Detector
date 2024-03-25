@@ -63,8 +63,8 @@ if __name__ == "__main__":
             keypoints, keypoints_levels = sample_box_points(keypoints, cloud, num_splits_list[it], args.box_sample_mode, args.valid_angle_thres, True)
         elif args.keypoints_filter == 'height_bins':
             keypoints, keypoints_levels = sample_hist_points(keypoints, cloud, num_bins_list[it], args.hist_sample_mode, args.valid_angle_thres, True)
-        else:
-            raise NotImplementedError("Other filterings not supported")
+        else:  # No filtering applied
+            keypoints_levels = None
 
         if not args.skip_graph:
             obj_graph = build_object_graph(keypoints, cloud, keypoints_levels, graph_mode=args.graph_mode, init_nn=args.init_nn)
