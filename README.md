@@ -145,3 +145,7 @@ The default option is as follows:
 ```
 python -m scripts.view_keypoint --config ./config/config.yaml --simplify_graph
 ```
+
+## 8. Notes on running experiments.
+### CED6D (XYZ + Normals)
+One workaround to testing this is by first extracting normals from CloudCompare and getting HSV colors from that and then using this with CED6D.
