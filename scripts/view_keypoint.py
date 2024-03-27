@@ -47,8 +47,8 @@ if __name__ == "__main__":
         num_splits_list = [args.num_contract_split]
         num_fps_list = [args.num_fps]
     else:
-        num_iter = 4
-        num_bins_list = [2, 3, 4, 5]  # Number of bins to test before outputting final object graph
+        num_iter = 3
+        num_bins_list = [3, 5, 7]  # Number of bins to test before outputting final object graph
         num_splits_list = [2, 3, 4, 5]
         num_fps_list = [10, 15, 20, 25]
 
