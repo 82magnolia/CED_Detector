@@ -367,9 +367,14 @@ def sample_hist_points_multidirectional(key_pcd, full_pcd, num_bins, sample_mode
     merged_key_pcd.points = o3d.utility.Vector3dVector(filtered_points)
 
     if return_level:  # Make levels along y-axis with k-means
-        k_means = KMeans(num_bins)
-        merged_key_pcd_levels = k_means.fit_predict(filtered_points[:, 1:2])
-        return merged_key_pcd, merged_key_pcd_levels
+        k_means = KMeans(num_bins + 2)  # Include top & bottom levels
+        k_means.fit(filtered_points[:, 1:2])
+        merged_key_pcd_levels = k_means.predict(filtered_points[:, 1:2])
+        sorted_key_pcd_levels = np.zeros_like(merged_key_pcd_levels)  # Sort the k-means labels with y-labels
+        sort_idx_arr = np.argsort(k_means.cluster_centers_.reshape(-1))
+        for idx, sort_idx in enumerate(sort_idx_arr):
+            sorted_key_pcd_levels[merged_key_pcd_levels == idx] = sort_idx
+        return merged_key_pcd, sorted_key_pcd_levels
     else:
         return merged_key_pcd
 
@@ -387,7 +392,7 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
         topk_pair = topk_pair.reshape(-1, 2)
         line_idx = topk_pair.tolist()
         graph_model.lines = o3d.utility.Vector2iVector(line_idx)
-    elif graph_mode in ['nn_level', 'nn_level_prune']:
+    elif graph_mode in ['nn_level', 'nn_level_prune', 'poly_level', 'poly_level_prune']:
         graph_model = o3d.geometry.LineSet()
         graph_model.points = key_pcd.points
         assert key_levels is not None
@@ -395,18 +400,59 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
         graph_lines = []
         for level in range(0, max_level + 1):
             # Add intra-level connections
-            level_idx = np.where(key_levels == level)[0]
-            level_init_nn = min(level_idx.shape[0] - 1, init_nn)
-            level_key_pcd = key_pcd.select_by_index(level_idx)
-            level_key_np = np.asarray(level_key_pcd.points)
-            level_dists = dists[level_idx, :][:, level_idx]
-            topk_idx = np.argsort(level_dists, axis=1)[:, :level_init_nn]
-            topk_idx = np.take(level_idx, topk_idx)
-            ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(level_init_nn, axis=1)
-            ref_idx = np.take(level_idx, ref_idx)
-            topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
-            topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
-            graph_lines.extend(list(map(tuple, topk_pair)))
+            if graph_mode in ['nn_level', 'nn_level_prune']:  # Nearest neighbor connections
+                level_idx = np.where(key_levels == level)[0]
+                level_init_nn = min(level_idx.shape[0] - 1, init_nn)
+                level_key_pcd = key_pcd.select_by_index(level_idx)
+                level_key_np = np.asarray(level_key_pcd.points)
+                level_dists = dists[level_idx, :][:, level_idx]
+                topk_idx = np.argsort(level_dists, axis=1)[:, :level_init_nn]
+                topk_idx = np.take(level_idx, topk_idx)
+                ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(level_init_nn, axis=1)
+                ref_idx = np.take(level_idx, ref_idx)
+                topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+                topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
+                graph_lines.extend(list(map(tuple, topk_pair)))
+            elif graph_mode in ['poly_level', 'poly_level_prune']:  # Polygon connections
+                level_idx = np.where(key_levels == level)[0]
+                level_init_nn = min(level_idx.shape[0] - 1, init_nn)
+                level_key_pcd = key_pcd.select_by_index(level_idx)
+                level_key_np = np.asarray(level_key_pcd.points)
+                level_dists = dists[level_idx, :][:, level_idx]
+                
+                # Obtain nearest neighbor connections
+                topk_idx = np.argsort(level_dists, axis=1)[:, :level_init_nn]
+                ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(level_init_nn, axis=1)
+                topk_pair = np.stack([ref_idx, topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+                topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
+
+                edge_list = np.asarray(topk_pair)
+                layer_graph = nx.from_edgelist(edge_list)
+                cycles = list(nx.simple_cycles(layer_graph, length_bound=level_idx.shape[0]))  # Detect cycles within length of level_idx
+
+                best_len = np.inf
+                best_cyc = None
+                for cyc in cycles:
+                    if len(cyc) == level_idx.shape[0]:
+                        cycle_length = np.linalg.norm(level_key_np[cyc] - np.roll(level_key_np[cyc], shift=1, axis=0), axis=-1)
+                        if cycle_length.mean() < best_len:
+                            best_cyc = cyc
+                            best_len = cycle_length.mean()
+
+                if best_cyc is None or len(best_cyc) < 3:
+                    orig_topk_idx = np.take(level_idx, topk_idx)
+                    orig_ref_idx = np.take(level_idx, ref_idx)
+                    topk_pair = np.stack([orig_ref_idx, orig_topk_idx], axis=-1)  # (N_pts, N_nn, 2)
+                    topk_pair = np.sort(topk_pair.reshape(-1, 2), axis=-1).tolist()
+                    graph_lines.extend(list(map(tuple, topk_pair)))
+                else:
+                    best_cyc_roll = best_cyc[1:] + best_cyc[0:1]
+                    best_cyc = np.take(level_idx, best_cyc)
+                    best_cyc_roll = np.take(level_idx, best_cyc_roll)
+                    best_cyc_pair = np.stack([best_cyc, best_cyc_roll], axis=-1).tolist()
+                    graph_lines.extend(list(map(tuple, best_cyc_pair)))
+            else:
+                raise NotImplementedError("Other connection types not implemented")
 
             # Add inter-level connections, both with next & previous levels
             if level != max_level:
