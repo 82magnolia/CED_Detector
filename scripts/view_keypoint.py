@@ -3,8 +3,9 @@ import os
 import open3d as o3d
 import argparse
 from scripts.contract_box_sampling import (
-    sample_box_points, 
-    sample_hist_points, 
+    sample_box_points,
+    sample_hist_points,
+    sample_hist_points_multidirectional,
     build_object_graph,
     simplify_graph
 )
@@ -60,10 +61,13 @@ if __name__ == "__main__":
 
         if args.keypoints_filter == 'fps':
             keypoints = keypoints.farthest_point_down_sample(num_samples=num_fps_list[it])
+            keypoints_levels = None
         elif args.keypoints_filter == 'contract_box':
             keypoints, keypoints_levels = sample_box_points(keypoints, cloud, num_splits_list[it], args.box_sample_mode, args.valid_angle_thres, True)
         elif args.keypoints_filter == 'height_bins':
             keypoints, keypoints_levels = sample_hist_points(keypoints, cloud, num_bins_list[it], args.hist_sample_mode, args.valid_angle_thres, True, args.visualize_contour)
+        elif args.keypoints_filter == 'height_bins_multi':
+            keypoints, keypoints_levels = sample_hist_points_multidirectional(keypoints, cloud, num_bins_list[it], args.hist_sample_mode, args.valid_angle_thres, True, args.visualize_contour)
         else:  # No filtering applied
             keypoints_levels = None
 

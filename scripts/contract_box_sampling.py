@@ -7,6 +7,8 @@ import networkx as nx
 from collections import deque
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R
+from sklearn.cluster import KMeans
 
 
 def roll_list(tgt_list, amount):
@@ -127,7 +129,7 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
                 diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
                 contour_np = contour_np[diff_angle < valid_angle_thres]
             
-            dists = np.linalg.norm(contour_np[:, None, :] - bin_kpts[None, :, :], axis=-1)
+            dists = np.linalg.norm(contour_np[:, None, [0, 2]] - bin_kpts[None, :, [0, 2]], axis=-1)
             contour_np = bin_kpts[dists.argmin(1)]
         else:
             alpha_shape = alphashape.alphashape(bin_kpts_xz, 0.0)  # Second attempt with convex hull
@@ -152,7 +154,7 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
                     diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
                     contour_np = contour_np[diff_angle < valid_angle_thres]
 
-                dists = np.linalg.norm(contour_np[:, None, :] - bin_kpts[None, :, :], axis=-1)
+                dists = np.linalg.norm(contour_np[:, None, [0, 2]] - bin_kpts[None, :, [0, 2]], axis=-1)
                 contour_np = bin_kpts[dists.argmin(1)]
             elif alpha_shape.geom_type == 'Point':
                 contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
@@ -166,7 +168,7 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
                 contour_np[:, [0, 2]] = contour_xz
                 contour_np[:, 1] = bin_y
 
-                dists = np.linalg.norm(contour_np[:, None, :] - bin_kpts[None, :, :], axis=-1)
+                dists = np.linalg.norm(contour_np[:, None, [0, 2]] - bin_kpts[None, :, [0, 2]], axis=-1)
                 contour_np = bin_kpts[dists.argmin(1)]
             else:
                 contour_np = bin_kpts
@@ -323,6 +325,53 @@ def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thr
         return key_pcd, key_levels
     else:
         return key_pcd
+
+
+def sample_hist_points_multidirectional(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False, visualize_contour=False):  # Sample points within histograms
+    rot_list = [
+        R.from_euler('zyx', [0, 0, 0], degrees=True).as_matrix(),
+        R.from_euler('zyx', [0, 90, 0], degrees=True).as_matrix(),
+        R.from_euler('zyx', [0, 0, 90], degrees=True).as_matrix()
+    ]
+    key_pcd_list = []
+    for rot in rot_list:
+        rot_key_pcd = o3d.geometry.PointCloud(key_pcd)
+        rot_key_pcd.points = o3d.utility.Vector3dVector(np.asarray(rot_key_pcd.points) @ rot)
+        rot_full_pcd = o3d.geometry.PointCloud(full_pcd)
+        rot_full_pcd.points = o3d.utility.Vector3dVector(np.asarray(rot_full_pcd.points) @ rot)
+        rot_key_pcd, rot_key_levels = sample_hist_points(
+            rot_key_pcd,
+            rot_full_pcd,
+            num_bins,
+            sample_mode,
+            valid_angle_thres,
+            return_level,
+            visualize_contour
+        )
+
+        # Rotate back to original frame
+        rot_key_pcd.points = o3d.utility.Vector3dVector(np.asarray(rot_key_pcd.points) @ rot.T)
+        key_pcd_list.append(rot_key_pcd)
+
+    merged_key_pcd = o3d.geometry.PointCloud()
+    merged_key_pcd_np = np.concatenate([np.asarray(pcd.points) for pcd in key_pcd_list])
+    merged_key_pcd.points = o3d.utility.Vector3dVector(merged_key_pcd_np)
+
+    # Filter using DBSCAN
+    labels = np.array(merged_key_pcd.cluster_dbscan(eps=0.1, min_points=2))
+    filtered_points = [merged_key_pcd_np[labels == -1]]
+    for lab in range(max(labels) + 1):
+        label_idx = np.where(labels == lab)[0]
+        filtered_points.append(merged_key_pcd_np[label_idx].mean(0).reshape(1, 3))
+    filtered_points = np.concatenate(filtered_points, axis=0)
+    merged_key_pcd.points = o3d.utility.Vector3dVector(filtered_points)
+
+    if return_level:  # Make levels along y-axis with k-means
+        k_means = KMeans(num_bins)
+        merged_key_pcd_levels = k_means.fit_predict(filtered_points[:, 1:2])
+        return merged_key_pcd, merged_key_pcd_levels
+    else:
+        return merged_key_pcd
 
 
 def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init_nn=2, inter_level_init_nn=1):
