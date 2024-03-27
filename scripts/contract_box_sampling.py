@@ -5,6 +5,8 @@ from scipy.sparse.csgraph import connected_components
 from rdp import rdp
 import networkx as nx
 from collections import deque
+from sklearn.preprocessing import MinMaxScaler
+import matplotlib.pyplot as plt
 
 
 def roll_list(tgt_list, amount):
@@ -85,6 +87,16 @@ def generate_contract_box_points(model, num_split):
     merged_box_pcd.paint_uniform_color((0., 0., 1.))
 
     return merged_box_pcd
+
+
+def extract_fps(bin_kpts, bin_y, fps_num=10):
+    proj_bin_kpts = np.copy(bin_kpts)  # Projected keypoints onto surface with height bin_y
+    proj_bin_kpts[:, 1] = bin_y
+    tgt_pcd = o3d.geometry.PointCloud()
+    tgt_pcd.points = o3d.utility.Vector3dVector(proj_bin_kpts)
+    tgt_pcd = tgt_pcd.farthest_point_down_sample(num_samples=fps_num)
+    contour_np = np.asarray(tgt_pcd.points)
+    return contour_np
 
 
 def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
@@ -219,7 +231,7 @@ def sample_box_points(key_pcd, full_pcd, num_split, sample_mode='box_nn', valid_
         return key_pcd
 
 
-def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False):  # Sample points within histograms
+def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thres=0., return_level=False, visualize_contour=False):  # Sample points within histograms
     # key_pcd stores keypoints and full_pcd stores the full point cloud
     full_np = np.asarray(full_pcd.points)
     key_np = np.asarray(key_pcd.points)
@@ -237,29 +249,67 @@ def sample_hist_points(key_pcd, full_pcd, num_bins, sample_mode, valid_angle_thr
     # Make histograms for middle regions
     middle_np = key_np[(key_np[:, 1] < full_np[:, 1].max() - tb_inlier_thres) & (key_np[:, 1] >= full_np[:, 1].min() + tb_inlier_thres)]
     hist_count, hist_y_points = np.histogram(middle_np[:, 1], bins=num_bins)
+
+    # Initialize scaler for normalizing points before fitting alphas
+    scaler = MinMaxScaler()
+
     if sample_mode == 'hist_alpha':
         valid_bin_thres = 3  # Smallest number of keypoints to consider
         contour_points = []
         key_levels = []
 
         # Process bottom
-        bottom_contour_np = extract_alpha(bottom_np, bottom_np[:, 1].min(), valid_angle_thres)
+        scaler.fit(bottom_np[:, [0, 2]])
+        rescale_bottom_up = np.copy(bottom_np)
+        rescale_bottom_up[:, [0, 2]] = scaler.transform(rescale_bottom_up[:, [0, 2]])
+        bottom_contour_np = extract_alpha(rescale_bottom_up, bottom_np[:, 1].min(), valid_angle_thres)
+        bottom_contour_np[:, [0, 2]] = scaler.inverse_transform(bottom_contour_np[:, [0, 2]])
         contour_points.append(bottom_contour_np)
         key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * 0)
+
+        if visualize_contour:
+            plt.scatter(bottom_np[:, 0], bottom_np[:, 2])
+            vis_contour_np = np.copy(bottom_contour_np)
+            vis_contour_np = np.concatenate([vis_contour_np, bottom_contour_np[0:1]], axis=0)
+            plt.plot(vis_contour_np[:, 0], vis_contour_np[:, 2], color='red')
+            plt.show()
 
         # Process middle
         valid_hist_idx = np.where(hist_count >= valid_bin_thres)[0]
         for height, hist_idx in enumerate(valid_hist_idx):
             inlier_np = key_np[(key_np[:, 1] >= hist_y_points[hist_idx]) & (key_np[:, 1] < hist_y_points[hist_idx + 1])]
             y_point = (hist_y_points[hist_idx] + hist_y_points[hist_idx + 1]) / 2.
-            contour_np = extract_alpha(inlier_np, y_point, valid_angle_thres)
+
+            scaler.fit(inlier_np[:, [0, 2]])
+            rescale_inlier_np = np.copy(inlier_np)
+            rescale_inlier_np[:, [0, 2]] = scaler.transform(rescale_inlier_np[:, [0, 2]])
+            contour_np = extract_alpha(rescale_inlier_np, y_point, valid_angle_thres)
+            contour_np[:, [0, 2]] = scaler.inverse_transform(contour_np[:, [0, 2]])
             contour_points.append(contour_np)
             key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * (height + 1))
-        
+
+            if visualize_contour:
+                plt.scatter(inlier_np[:, 0], inlier_np[:, 2])
+                vis_contour_np = np.copy(contour_np)
+                vis_contour_np = np.concatenate([vis_contour_np, contour_np[0:1]], axis=0)
+                plt.plot(vis_contour_np[:, 0], vis_contour_np[:, 2], color='red')
+                plt.show()
+
         # Process top
-        top_contour_np = extract_alpha(top_np, top_np[:, 1].max(), valid_angle_thres)
+        scaler.fit(top_np[:, [0, 2]])
+        rescale_top_up = np.copy(top_np)
+        rescale_top_up[:, [0, 2]] = scaler.transform(rescale_top_up[:, [0, 2]])
+        top_contour_np = extract_alpha(rescale_top_up, top_np[:, 1].max(), valid_angle_thres)
+        top_contour_np[:, [0, 2]] = scaler.inverse_transform(top_contour_np[:, [0, 2]])
         contour_points.append(top_contour_np)
         key_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * len(valid_hist_idx) + 1)
+
+        if visualize_contour:
+            plt.scatter(top_np[:, 0], top_np[:, 2])
+            vis_contour_np = np.copy(top_contour_np)
+            vis_contour_np = np.concatenate([vis_contour_np, top_contour_np[0:1]], axis=0)
+            plt.plot(vis_contour_np[:, 0], vis_contour_np[:, 2], color='red')
+            plt.show()
 
         contour_points = np.concatenate(contour_points, axis=0)
         key_pcd = o3d.geometry.PointCloud()

@@ -34,6 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip_graph", action="store_true", help="Optionally skip object graph generation")
     parser.add_argument("--simplify_graph", action="store_true", help="Optionally simplify object graph")
     parser.add_argument("--target_num_points", default=15, help="Target number of keypoints to generate (if set, runs height-based selection with various bins)", type=int)
+    parser.add_argument("--visualize_contour", action="store_true", help="Visualize contours for each height bin")
     args = parser.parse_args()
 
     if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines
@@ -62,7 +63,7 @@ if __name__ == "__main__":
         elif args.keypoints_filter == 'contract_box':
             keypoints, keypoints_levels = sample_box_points(keypoints, cloud, num_splits_list[it], args.box_sample_mode, args.valid_angle_thres, True)
         elif args.keypoints_filter == 'height_bins':
-            keypoints, keypoints_levels = sample_hist_points(keypoints, cloud, num_bins_list[it], args.hist_sample_mode, args.valid_angle_thres, True)
+            keypoints, keypoints_levels = sample_hist_points(keypoints, cloud, num_bins_list[it], args.hist_sample_mode, args.valid_angle_thres, True, args.visualize_contour)
         else:  # No filtering applied
             keypoints_levels = None
 
