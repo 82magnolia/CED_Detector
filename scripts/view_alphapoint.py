@@ -9,6 +9,8 @@ from scripts.contract_box_sampling import (
     simplify_graph
 )
 import numpy as np
+from plyfile import PlyData
+
 
 def alphapoints_to_spheres(alphapoints):
     spheres = o3d.geometry.TriangleMesh()
@@ -63,6 +65,7 @@ if __name__ == "__main__":
     parser.add_argument("--visualize_contour", action="store_true", help="Visualize contours for each height bin")
     parser.add_argument("--alphapoint_mode", default="multi_dir", help="Type of alpha point extraction algorithm to run")
     parser.add_argument("--ced_config", default="./config/config.yaml", help=".yaml file to use for configuring keypoint extraction")
+    parser.add_argument("--tmp_store_name", default="./results/tmp.ply", help="Temporary file name for storing float-converted .ply to use for CED")
     args = parser.parse_args()
 
     models_list = []
@@ -83,7 +86,13 @@ if __name__ == "__main__":
             if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines
                 del os.environ['SVGA_VGPU10']  # remove it to launch Open3D visualizer properly
             if it == 0:  # Only run CED at first run
-                os.system(f'./build/test_keypoint {args.ced_config} {args.pcd_name}')
+                # Convert to floating point .ply to use for CED input (PCL compatibility)
+                tmp_cloud = o3d.t.io.read_point_cloud(args.pcd_name)
+                for attr in tmp_cloud.point:
+                    tmp_cloud.point[attr] = tmp_cloud.point[attr].to(o3d.core.float32)
+                o3d.t.io.write_point_cloud(args.tmp_store_name, tmp_cloud, compressed=True)
+                os.system(f'./build/test_keypoint {args.ced_config} {args.tmp_store_name}')
+                os.system(f'rm -rf {args.tmp_store_name}')
             cloud = o3d.io.read_point_cloud("./results/cloud.ply")
             keypoints = o3d.io.read_point_cloud("./results/keypoint.ply")
             
