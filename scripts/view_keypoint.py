@@ -41,6 +41,11 @@ if __name__ == "__main__":
     if 'SVGA_VGPU10' in os.environ:    # this environment variable may exist in VMware virtual machines
         del os.environ['SVGA_VGPU10']  # remove it to launch Open3D visualizer properly
 
+    models_list = []
+    os.system(f'./build/test_keypoint {args.config}')
+    cloud = o3d.io.read_point_cloud("./results/cloud.ply")
+    keypoints = o3d.io.read_point_cloud("./results/keypoint.ply")
+
     if args.target_num_points == -1:
         num_iter = 1
         num_bins_list = [args.num_hist_bins]
@@ -52,12 +57,8 @@ if __name__ == "__main__":
         num_splits_list = [2, 3, 4, 5]
         num_fps_list = [10, 15, 20, 25]
 
-    models_list = []
-    os.system(f'./build/test_keypoint {args.config}')
     for it in range(num_iter):
         print(f"Iteration {it}:")
-        cloud = o3d.io.read_point_cloud("./results/cloud.ply")
-        keypoints = o3d.io.read_point_cloud("./results/keypoint.ply")
 
         if args.keypoints_filter == 'fps':
             keypoints = keypoints.farthest_point_down_sample(num_samples=num_fps_list[it])

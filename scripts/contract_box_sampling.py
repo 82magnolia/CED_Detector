@@ -9,6 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import KMeans
+import scipy
 
 
 def roll_list(tgt_list, amount):
@@ -104,7 +105,11 @@ def extract_fps(bin_kpts, bin_y, fps_num=10):
 def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
     # bin_y is the midpoint value of the height bin considered
     bin_kpts_xz = bin_kpts[:, [0, 2]]
-    alpha_shape = alphashape.alphashape(bin_kpts_xz, 2.0)  # First attempt with concave hull
+    try:  # Handle concave hull errors when building alpha shapes
+        alpha_shape = alphashape.alphashape(bin_kpts_xz, 2.0)  # First attempt with concave hull
+    except scipy.spatial._qhull.QhullError:
+        alpha_shape = alphashape.alphashape(bin_kpts_xz, 0.0)  # If error, move to convex hull
+
     valid_area_thres = 0.1
     rdp_epsilon = 0.1  # Parameter for curve simplification to remove highly circular regions (Ramer–Douglas–Peucker algorithm)
     if not alpha_shape.is_empty:
@@ -153,20 +158,6 @@ def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
                     diff_to_prev = diff_to_prev / np.linalg.norm(diff_to_prev, axis=-1, keepdims=True)
                     diff_angle = np.rad2deg(np.arccos((diff_to_next * diff_to_prev).sum(axis=-1)))
                     contour_np = contour_np[diff_angle < valid_angle_thres]
-
-                dists = np.linalg.norm(contour_np[:, None, [0, 2]] - bin_kpts[None, :, [0, 2]], axis=-1)
-                contour_np = bin_kpts[dists.argmin(1)]
-            elif alpha_shape.geom_type == 'Point':
-                contour_xz = np.stack([alpha_shape.xy[0], alpha_shape.xy[1]], axis=1)
-                contour_xz = contour_xz[:-1]  # Last point is equal to first point in alphashapes
-                if alpha_shape.area < valid_area_thres:  # Polygon close to a line
-                    ep_idx0 = np.linalg.norm(contour_xz - contour_xz.mean(axis=0, keepdims=True), axis=1).argmax()  # Pick farthest point so rdp gets the correct end points
-                    ep_idx1 = np.linalg.norm(contour_xz - contour_xz[ep_idx0: ep_idx0 + 1], axis=1).argmax()
-                    contour_xz = contour_xz[min(ep_idx0, ep_idx1): max(ep_idx0, ep_idx1) + 1]
-                contour_xz = rdp(contour_xz, rdp_epsilon)
-                contour_np = np.zeros([contour_xz.shape[0], 3])
-                contour_np[:, [0, 2]] = contour_xz
-                contour_np[:, 1] = bin_y
 
                 dists = np.linalg.norm(contour_np[:, None, [0, 2]] - bin_kpts[None, :, [0, 2]], axis=-1)
                 contour_np = bin_kpts[dists.argmin(1)]
@@ -357,13 +348,24 @@ def sample_hist_points_multidirectional(key_pcd, full_pcd, num_bins, sample_mode
     merged_key_pcd_np = np.concatenate([np.asarray(pcd.points) for pcd in key_pcd_list])
     merged_key_pcd.points = o3d.utility.Vector3dVector(merged_key_pcd_np)
 
-    # Filter using DBSCAN
-    labels = np.array(merged_key_pcd.cluster_dbscan(eps=0.1, min_points=2))
-    filtered_points = [merged_key_pcd_np[labels == -1]]
-    for lab in range(max(labels) + 1):
-        label_idx = np.where(labels == lab)[0]
-        filtered_points.append(merged_key_pcd_np[label_idx].mean(0).reshape(1, 3))
-    filtered_points = np.concatenate(filtered_points, axis=0)
+    # Filter using DBSCAN (adaptively choose epsilon so that a sufficient number of points are kept)
+    curr_eps = 0.1
+    max_dbscan_iter = 10
+    for it in range(max_dbscan_iter):
+        labels = np.array(merged_key_pcd.cluster_dbscan(eps=curr_eps, min_points=2))
+        filtered_points = [merged_key_pcd_np[labels == -1]]
+        for lab in range(max(labels) + 1):
+            label_idx = np.where(labels == lab)[0]
+            filtered_points.append(merged_key_pcd_np[label_idx].mean(0).reshape(1, 3))
+        filtered_points = np.concatenate(filtered_points, axis=0)
+
+        if filtered_points.shape[0] >= 2 * (num_bins + 2):  # Threshold for getting valid k-means?
+            break
+        else:
+            if it == max_dbscan_iter - 1:  # Reset to original points if at last iteration
+                filtered_points = merged_key_pcd_np
+            curr_eps *= 2
+
     merged_key_pcd.points = o3d.utility.Vector3dVector(filtered_points)
 
     if return_level:  # Make levels along y-axis with k-means
