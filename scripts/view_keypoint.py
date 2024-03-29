@@ -22,11 +22,12 @@ def keypoints_to_spheres(keypoints):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--pcd_name", required=True, help="Name of point cloud .ply file to load")
     parser.add_argument("--num_fps", type=int, default=15, help="Optional number of points to keep after farthest point sampling")
     parser.add_argument("--num_contract_split", type=int, default=4, help="Optional number of height splits to make for keeping keypoints near bounding boxes")
     parser.add_argument("--num_hist_bins", type=int, default=3, help="Optional number of height histogram bins to make for filtering keypoints")
     parser.add_argument("--keypoints_filter", default="height_bins", help="Type of filtering to first apply to initial keypoints")
-    parser.add_argument("--config", default="./config/config.yaml", help=".yaml file to use for configuring keypoint extraction")
+    parser.add_argument("--ced_config", default="./config/config.yaml", help=".yaml file to use for configuring keypoint extraction")
     parser.add_argument("--box_sample_mode", default="box_alpha", help="Type of box sampling")
     parser.add_argument("--hist_sample_mode", default="hist_alpha", help="Type of histogram sampling")
     parser.add_argument("--valid_angle_thres", default=150., help="Angle thresholding to use for alphashape-based keypoint filtering", type=float)
@@ -42,7 +43,7 @@ if __name__ == "__main__":
         del os.environ['SVGA_VGPU10']  # remove it to launch Open3D visualizer properly
 
     models_list = []
-    os.system(f'./build/test_keypoint {args.config}')
+    os.system(f'./build/test_keypoint {args.ced_config} {args.pcd_name}')
     cloud = o3d.io.read_point_cloud("./results/cloud.ply")
     keypoints = o3d.io.read_point_cloud("./results/keypoint.ply")
 

@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
   YAML::Node perception_node = root_node["perception_config"];
 
   const std::string keypoint_method = test_kp_node["keypoint_method"].as<std::string> ();
-  const std::string src_filename = test_kp_node["source_cloud"].as<std::string> ();
+  const std::string src_filename = argv[2];
   const std::string log_filename = test_kp_node["log_filename"].as<std::string> ();
   const std::string save_cloud_to_file = test_kp_node["save_cloud_to_file"].as<std::string> ();
   const std::string save_keypoint_to_file = test_kp_node["save_keypoint_to_file"].as<std::string> ();

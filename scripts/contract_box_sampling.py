@@ -102,11 +102,11 @@ def extract_fps(bin_kpts, bin_y, fps_num=10):
     return contour_np
 
 
-def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0.):
+def extract_alpha(bin_kpts, bin_y, valid_angle_thres=0., init_alpha=2.0):
     # bin_y is the midpoint value of the height bin considered
     bin_kpts_xz = bin_kpts[:, [0, 2]]
     try:  # Handle concave hull errors when building alpha shapes
-        alpha_shape = alphashape.alphashape(bin_kpts_xz, 2.0)  # First attempt with concave hull
+        alpha_shape = alphashape.alphashape(bin_kpts_xz, init_alpha)  # First attempt with concave hull
     except scipy.spatial._qhull.QhullError:
         alpha_shape = alphashape.alphashape(bin_kpts_xz, 0.0)  # If error, move to convex hull
 
@@ -381,6 +381,155 @@ def sample_hist_points_multidirectional(key_pcd, full_pcd, num_bins, sample_mode
         return merged_key_pcd
 
 
+def sample_alpha_points(full_pcd, num_bins, valid_angle_thres=0., return_level=False, visualize_contour=False):  # Sample points within histograms
+    full_np = np.asarray(full_pcd.points)
+    tb_inlier_thres = 0.05 * (full_np[:, 1].max() - full_np[:, 1].min())
+    bin_max_point_count = 1000
+
+    # First keep top and bottom points from the full point cloud
+    top_np = full_np[(full_np[:, 1] > full_np[:, 1].max() - tb_inlier_thres)]
+    bottom_np = full_np[(full_np[:, 1] < full_np[:, 1].min() + tb_inlier_thres)]
+
+    # Downsample to smaller set of points
+    top_np = top_np[np.random.permutation(top_np.shape[0])[:bin_max_point_count]]
+    bottom_np = bottom_np[np.random.permutation(bottom_np.shape[0])[:bin_max_point_count]]
+
+    # Make histograms for middle regions
+    middle_np = full_np[(full_np[:, 1] < full_np[:, 1].max() - tb_inlier_thres) & (full_np[:, 1] >= full_np[:, 1].min() + tb_inlier_thres)]
+    hist_count, hist_y_points = np.histogram(middle_np[:, 1], bins=num_bins)
+
+    # Initialize scaler for normalizing points before fitting alphas
+    scaler = MinMaxScaler()
+
+    valid_bin_thres = 3  # Smallest number of keypoints to consider
+    contour_points = []
+    alpha_levels = []
+
+    # Process bottom
+    scaler.fit(bottom_np[:, [0, 2]])
+    rescale_bottom_up = np.copy(bottom_np)
+    rescale_bottom_up[:, [0, 2]] = scaler.transform(rescale_bottom_up[:, [0, 2]])
+    bottom_contour_np = extract_alpha(rescale_bottom_up, bottom_np[:, 1].min(), valid_angle_thres, 10.0)
+    bottom_contour_np[:, [0, 2]] = scaler.inverse_transform(bottom_contour_np[:, [0, 2]])
+    contour_points.append(bottom_contour_np)
+    alpha_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * 0)
+
+    if visualize_contour:
+        plt.scatter(bottom_np[:, 0], bottom_np[:, 2])
+        vis_contour_np = np.copy(bottom_contour_np)
+        vis_contour_np = np.concatenate([vis_contour_np, bottom_contour_np[0:1]], axis=0)
+        plt.plot(vis_contour_np[:, 0], vis_contour_np[:, 2], color='red')
+        plt.show()
+
+    # Process middle
+    valid_hist_idx = np.where(hist_count >= valid_bin_thres)[0]
+    for height, hist_idx in enumerate(valid_hist_idx):
+        inlier_np = middle_np[(middle_np[:, 1] >= hist_y_points[hist_idx]) & (middle_np[:, 1] < hist_y_points[hist_idx + 1])]
+        inlier_np = inlier_np[np.random.permutation(inlier_np.shape[0])[:bin_max_point_count]]  # Downsample to smaller set of points
+        y_point = (hist_y_points[hist_idx] + hist_y_points[hist_idx + 1]) / 2.
+
+        scaler.fit(inlier_np[:, [0, 2]])
+        rescale_inlier_np = np.copy(inlier_np)
+        rescale_inlier_np[:, [0, 2]] = scaler.transform(rescale_inlier_np[:, [0, 2]])
+        contour_np = extract_alpha(rescale_inlier_np, y_point, valid_angle_thres, 10.0)
+        contour_np[:, [0, 2]] = scaler.inverse_transform(contour_np[:, [0, 2]])
+        contour_points.append(contour_np)
+        alpha_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * (height + 1))
+
+        if visualize_contour:
+            plt.scatter(inlier_np[:, 0], inlier_np[:, 2])
+            vis_contour_np = np.copy(contour_np)
+            vis_contour_np = np.concatenate([vis_contour_np, contour_np[0:1]], axis=0)
+            plt.plot(vis_contour_np[:, 0], vis_contour_np[:, 2], color='red')
+            plt.show()
+
+    # Process top
+    scaler.fit(top_np[:, [0, 2]])
+    rescale_top_up = np.copy(top_np)
+    rescale_top_up[:, [0, 2]] = scaler.transform(rescale_top_up[:, [0, 2]])
+    top_contour_np = extract_alpha(rescale_top_up, top_np[:, 1].max(), valid_angle_thres, 10.0)
+    top_contour_np[:, [0, 2]] = scaler.inverse_transform(top_contour_np[:, [0, 2]])
+    contour_points.append(top_contour_np)
+    alpha_levels.append(np.ones_like(contour_points[-1][:, 0], dtype=int) * len(valid_hist_idx) + 1)
+
+    if visualize_contour:
+        plt.scatter(top_np[:, 0], top_np[:, 2])
+        vis_contour_np = np.copy(top_contour_np)
+        vis_contour_np = np.concatenate([vis_contour_np, top_contour_np[0:1]], axis=0)
+        plt.plot(vis_contour_np[:, 0], vis_contour_np[:, 2], color='red')
+        plt.show()
+
+    contour_points = np.concatenate(contour_points, axis=0)
+    alpha_pcd = o3d.geometry.PointCloud()
+    alpha_pcd.points = o3d.utility.Vector3dVector(contour_points)
+    alpha_pcd.paint_uniform_color((1., 0., 0.))
+    alpha_levels = np.concatenate(alpha_levels, axis=0)
+
+    if return_level:
+        return alpha_pcd, alpha_levels
+    else:
+        return alpha_pcd
+
+
+def sample_alpha_points_multidirectional(full_pcd, num_bins, valid_angle_thres=0., return_level=False, visualize_contour=False):  # Sample points within histograms
+    rot_list = [
+        R.from_euler('zyx', [0, 0, 0], degrees=True).as_matrix(),
+        R.from_euler('zyx', [0, 90, 0], degrees=True).as_matrix(),
+        R.from_euler('zyx', [0, 0, 90], degrees=True).as_matrix()
+    ]
+    alpha_pcd_list = []
+    for rot in rot_list:
+        rot_full_pcd = o3d.geometry.PointCloud(full_pcd)
+        rot_full_pcd.points = o3d.utility.Vector3dVector(np.asarray(rot_full_pcd.points) @ rot)
+        rot_alpha_pcd, rot_key_levels = sample_alpha_points(
+            rot_full_pcd,
+            num_bins,
+            valid_angle_thres,
+            return_level,
+            visualize_contour
+        )
+
+        # Rotate back to original frame
+        rot_alpha_pcd.points = o3d.utility.Vector3dVector(np.asarray(rot_alpha_pcd.points) @ rot.T)
+        alpha_pcd_list.append(rot_alpha_pcd)
+
+    merged_alpha_pcd = o3d.geometry.PointCloud()
+    merged_alpha_pcd_np = np.concatenate([np.asarray(pcd.points) for pcd in alpha_pcd_list])
+    merged_alpha_pcd.points = o3d.utility.Vector3dVector(merged_alpha_pcd_np)
+
+    # Filter using DBSCAN (adaptively choose epsilon so that a sufficient number of points are kept)
+    curr_eps = 0.1
+    max_dbscan_iter = 10
+    for it in range(max_dbscan_iter):
+        labels = np.array(merged_alpha_pcd.cluster_dbscan(eps=curr_eps, min_points=2))
+        filtered_points = [merged_alpha_pcd_np[labels == -1]]
+        for lab in range(max(labels) + 1):
+            label_idx = np.where(labels == lab)[0]
+            filtered_points.append(merged_alpha_pcd_np[label_idx].mean(0).reshape(1, 3))
+        filtered_points = np.concatenate(filtered_points, axis=0)
+
+        if filtered_points.shape[0] >= 2 * (num_bins + 2):  # Threshold for getting valid k-means?
+            break
+        else:
+            if it == max_dbscan_iter - 1:  # Reset to original points if at last iteration
+                filtered_points = merged_alpha_pcd_np
+            curr_eps *= 2
+
+    merged_alpha_pcd.points = o3d.utility.Vector3dVector(filtered_points)
+
+    if return_level:  # Make levels along y-axis with k-means
+        k_means = KMeans(num_bins + 2)  # Include top & bottom levels
+        k_means.fit(filtered_points[:, 1:2])
+        merged_alpha_pcd_levels = k_means.predict(filtered_points[:, 1:2])
+        ranked_alpha_pcd_levels = np.zeros_like(merged_alpha_pcd_levels)  # Replace the k-means labels with y-label rankings
+        rank_arr = np.argsort(np.argsort(k_means.cluster_centers_.reshape(-1)))
+        for idx, rank in enumerate(rank_arr):
+            ranked_alpha_pcd_levels[merged_alpha_pcd_levels == idx] = rank
+        return merged_alpha_pcd, ranked_alpha_pcd_levels
+    else:
+        return merged_alpha_pcd
+
+
 def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init_nn=2, inter_level_init_nn=1):
     key_np = np.asarray(key_pcd.points)
     dists = np.linalg.norm(key_np[:, None, :] - key_np[None, :, :], axis=-1)
@@ -423,7 +572,10 @@ def build_object_graph(key_pcd, full_pcd, key_levels=None, graph_mode='nn', init
                 level_key_pcd = key_pcd.select_by_index(level_idx)
                 level_key_np = np.asarray(level_key_pcd.points)
                 level_dists = dists[level_idx, :][:, level_idx]
-                
+
+                if level_key_np.shape[0] == 0:  # Insufficient number of points in level
+                    continue
+
                 # Obtain nearest neighbor connections
                 topk_idx = np.argsort(level_dists, axis=1)[:, :level_init_nn]
                 ref_idx = np.arange(level_key_np.shape[0])[:, None].repeat(level_init_nn, axis=1)
