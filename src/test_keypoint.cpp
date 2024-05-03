@@ -17,9 +17,10 @@ int main(int argc, char** argv) {
 
   const std::string keypoint_method = test_kp_node["keypoint_method"].as<std::string> ();
   const std::string src_filename = argv[2];
-  const std::string log_filename = test_kp_node["log_filename"].as<std::string> ();
-  const std::string save_cloud_to_file = test_kp_node["save_cloud_to_file"].as<std::string> ();
-  const std::string save_keypoint_to_file = test_kp_node["save_keypoint_to_file"].as<std::string> ();
+  std::string save_root(argv[3]);
+  const std::string log_filename = save_root + "/keypoint_log.csv";
+  const std::string save_cloud_to_file = save_root + "/cloud.ply";
+  const std::string save_keypoint_to_file = save_root + "/keypoint.ply";
   const bool pcl_visualization = test_kp_node["pcl_visualization"].as<bool> ();
 
   // prepare point clouds
