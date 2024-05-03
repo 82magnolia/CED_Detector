@@ -28,6 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_hist_bins", type=int, default=3, help="Optional number of height histogram bins to make for filtering keypoints")
     parser.add_argument("--keypoints_filter", default="height_bins", help="Type of filtering to first apply to initial keypoints")
     parser.add_argument("--ced_config", default="./config/config.yaml", help=".yaml file to use for configuring keypoint extraction")
+    parser.add_argument("--save_dir", default="./results/", help="Directory for saving keypoint extraction results")
     parser.add_argument("--box_sample_mode", default="box_alpha", help="Type of box sampling")
     parser.add_argument("--hist_sample_mode", default="hist_alpha", help="Type of histogram sampling")
     parser.add_argument("--valid_angle_thres", default=150., help="Angle thresholding to use for alphashape-based keypoint filtering", type=float)
@@ -50,7 +51,7 @@ if __name__ == "__main__":
     for attr in tmp_cloud.point:
         tmp_cloud.point[attr] = tmp_cloud.point[attr].to(o3d.core.float32)
     o3d.t.io.write_point_cloud(args.tmp_store_name, tmp_cloud, compressed=True)
-    os.system(f'./build/test_keypoint {args.ced_config} {args.tmp_store_name}')
+    os.system(f'./build/test_keypoint {args.ced_config} {args.tmp_store_name} {args.save_dir}')
     os.system(f'rm -rf {args.tmp_store_name}')
 
     cloud = o3d.io.read_point_cloud("./results/cloud.ply")
