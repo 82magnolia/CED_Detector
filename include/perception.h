@@ -20,7 +20,6 @@
 #include <pcl/keypoints/harris_6d.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/features/pfhrgb.h>
-#include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/search/impl/kdtree.hpp>  // needed for custom L1/L2 distance; skip PCL_NO_PRECOMPILE
 #include <pcl/kdtree/kdtree_flann.h>
@@ -46,7 +45,6 @@ class Perception
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
     using KeypointPtr = pcl::PointCloud<PointT>::Ptr;
     using FeaturePtr = typename pcl::PointCloud<FeatureT>::Ptr;
-    using Visualizer = pcl::visualization::PCLVisualizer;
 
     Perception (const YAML::Node& node, std::string log_path = "/dev/null")
         : kdtree_ (new pcl::search::KdTree<PointT, pcl::KdTreeFLANN<PointT, flann::L2_Simple<float>>>),
@@ -72,9 +70,6 @@ class Perception
     void featureMatching (const KeypointPtr& src_keypoint, const KeypointPtr& tgt_keypoint,
                           const FeaturePtr& src_feature, const FeaturePtr& tgt_feature,
                           Eigen::Matrix3Xd& src_cloud, Eigen::Matrix3Xd& tgt_cloud);
-    void visualizeKeypoints (const PointCloudPtr& cloud, const KeypointPtr& keypoint);
-    void visualizeRegistration (const PointCloudPtr& source, const PointCloudPtr& source_transformed,
-                                const PointCloudPtr& target);
 
   protected:
     void detectKeypoints_Random (const PointCloudPtr& cloud, const KeypointPtr& keypoint);

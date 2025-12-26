@@ -297,47 +297,4 @@ void my::Perception<FeatureT>::featureMatching (const KeypointPtr& src_keypoint,
 }
 
 
-template <typename FeatureT>
-void my::Perception<FeatureT>::visualizeKeypoints (const PointCloudPtr& cloud, const KeypointPtr& keypoint) {
-  // Add point clouds to the viewer
-  pcl::visualization::PCLVisualizer visualizer;
-  visualizer.addPointCloud<PointT> (cloud, "cloud");
-
-  // As a workaround, we use normals to represent keypoints
-  pcl::NormalEstimation<PointT, NormalT> ne;
-  ne.setSearchMethod (kdtree_);
-  ne.setKSearch (20); // estimate normal using the closest 20 neighbor points
-  ne.setInputCloud (keypoint);
-  ne.compute (*keypoint);
-  std::vector<int> nan_idx;
-  pcl::removeNaNNormalsFromPointCloud (*keypoint, *keypoint, nan_idx);
-  visualizer.addPointCloudNormals<NormalT> (keypoint, 1, 0.03f, "keypoint");
-
-  while (!visualizer.wasStopped ()) {
-    visualizer.spinOnce ();
-    pcl_sleep(0.01);
-  }
-}
-
-
-template <typename FeatureT>
-void my::Perception<FeatureT>::visualizeRegistration (const PointCloudPtr& source,
-                                                      const PointCloudPtr& source_transformed, 
-                                                      const PointCloudPtr& target) {
-  // Add point clouds to the viewer
-  pcl::visualization::PCLVisualizer visualizer;
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> src_color_handler (source, 255, 255, 0);
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> src_trans_color_handler (source_transformed, 255, 255, 255);
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> tgt_color_handler (target, 0, 255, 255);
-  visualizer.addPointCloud (source, src_color_handler, "source cloud");
-  visualizer.addPointCloud (source_transformed, src_trans_color_handler, "source cloud transformed");
-  visualizer.addPointCloud (target, tgt_color_handler, "target cloud");
-  
-  while (!visualizer.wasStopped ()) {
-    visualizer.spinOnce ();
-    pcl_sleep(0.01);
-  }
-}
-
-
 #endif  // MY_PERCEPTION_HPP_

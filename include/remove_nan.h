@@ -1,8 +1,8 @@
 #ifndef MY_REMOVE_NAN_H_
 #define MY_REMOVE_NAN_H_
 
-#include <pcl/pcl_macros.h>  // for pcl_isfinite -- PCL v1.8
-//#include <pcl/common/point_tests.h> // for pcl::isFinite -- PCL v1.11
+//#include <pcl/pcl_macros.h>  // for pcl_isfinite -- PCL v1.8
+#include <pcl/common/point_tests.h> // for pcl::isFinite -- PCL v1.11
 #include <pcl/filters/filter.h>
 
 
