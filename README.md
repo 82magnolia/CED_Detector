@@ -42,6 +42,8 @@ Below is an example of keypoints detected on an arbitrary frame in the [Redwood 
 ### 3.2 Steps
 - To install PCL, Eigen, CMake and yaml-cpp, run `sudo apt install libpcl-dev libeigen3-dev libyaml-cpp-dev cmake`.
 
+- Note for PCL, we need version 1.11. Please download the source code for PCL 1.11 and follow the instructions in this link: [https://pointclouds.org/documentation/tutorials/compiling_pcl_posix.html](https://pointclouds.org/documentation/tutorials/compiling_pcl_posix.html).
+
 - To install TEASER++, follow the steps below (as provided in the official repository).
   ```
   git clone https://github.com/MIT-SPARK/TEASER-plusplus.git
