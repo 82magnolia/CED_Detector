@@ -49,7 +49,10 @@ if __name__ == "__main__":
     # Convert to floating point .ply to use for CED input (PCL compatibility)
     tmp_cloud = o3d.t.io.read_point_cloud(args.pcd_name)
     for attr in tmp_cloud.point:
-        tmp_cloud.point[attr] = tmp_cloud.point[attr].to(o3d.core.float32)
+        if attr == "colors":  # Normalize color
+            tmp_cloud.point[attr] = tmp_cloud.point[attr].to(o3d.core.uint8)
+        else:
+            tmp_cloud.point[attr] = tmp_cloud.point[attr].to(o3d.core.float32)
     o3d.t.io.write_point_cloud(args.tmp_store_name, tmp_cloud, compressed=True)
     os.system(f'./build/test_keypoint {args.ced_config} {args.tmp_store_name} {args.save_dir}')
     os.system(f'rm -rf {args.tmp_store_name}')
