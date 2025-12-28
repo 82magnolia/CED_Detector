@@ -22,6 +22,9 @@ if __name__ == "__main__":
         os.makedirs(os.path.join(args.save_root, "keypoints"), exist_ok=True)
         os.makedirs(os.path.join(args.save_root, "randpoints"), exist_ok=True)
 
+    if not os.path.exists(args.ced_save_dir):
+        os.makedirs(args.ced_save_dir, exist_ok=True)
+
     # List all meshes to process
     mesh_path_list = [os.path.join(args.objectfoloder_root, dir_path, 'model.obj') for dir_path in sorted(os.listdir(args.objectfoloder_root))]
 
