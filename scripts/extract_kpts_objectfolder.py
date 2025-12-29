@@ -11,7 +11,7 @@ if __name__ == "__main__":
     parser.add_argument("--objectfoloder_root", help="Root directory of ObjectFolder meshes", default="./data/ObjectFolder/")
     parser.add_argument("--save_root", help="Root directory for saving keypoints", default="./data/ObjectFolder_sample_points/")
     parser.add_argument("--mesh_sample_points", default=1000000, help="Number of points to sample from mesh")
-    parser.add_argument("--tmp_store_name", default="./results/tmp.ply", help="Temporary file name for storing float-converted .ply to use for CED")
+    parser.add_argument("--tmp_store_name", default="tmp.ply", help="Temporary file name for storing float-converted .ply to use for CED")
     parser.add_argument("--ced3d_config", default="./config/config_object_folder_3d.yaml", help=".yaml file to use for configuring 3D keypoint extraction")
     parser.add_argument("--ced6d_config", default="./config/config_object_folder_6d.yaml", help=".yaml file to use for configuring 6D keypoint extraction")
     parser.add_argument("--ced_save_dir", default="./results/", help="Directory for temporarily saving CED keypoint extraction results")
@@ -49,17 +49,18 @@ if __name__ == "__main__":
 
         o3d_pcd.point.normals = o3d.core.Tensor(normals, o3d.core.float32, device)
 
-        o3d.t.io.write_point_cloud(args.tmp_store_name, o3d_pcd, compressed=True)
+        tmp_store_path = os.path.join(args.ced_save_dir, args.tmp_store_name)
+        o3d.t.io.write_point_cloud(tmp_store_path, o3d_pcd, compressed=True)
 
         if colors is not None:
-            os.system(f'./build/test_keypoint {args.ced6d_config} {args.tmp_store_name} {args.ced_save_dir}')
+            os.system(f'./build/test_keypoint {args.ced6d_config} {tmp_store_path} {args.ced_save_dir}')
         else:
-            os.system(f'./build/test_keypoint {args.ced3d_config} {args.tmp_store_name} {args.ced_save_dir}')
+            os.system(f'./build/test_keypoint {args.ced3d_config} {tmp_store_path} {args.ced_save_dir}')
 
-        os.system(f'rm -rf {args.tmp_store_name}')
+        os.system(f'rm -rf {tmp_store_path}')
 
-        cloud = o3d.io.read_point_cloud("./results/cloud.ply")
-        keypoints = o3d.io.read_point_cloud("./results/keypoint.ply")
+        cloud = o3d.io.read_point_cloud(os.path.join(args.ced_save_dir, "cloud.ply"))
+        keypoints = o3d.io.read_point_cloud(os.path.join(args.ced_save_dir, "keypoint.ply"))
 
         # Re-normalize points
         cloud.points = o3d.utility.Vector3dVector(np.asarray(cloud.points) * axis_len)
@@ -69,4 +70,4 @@ if __name__ == "__main__":
         randpoints = cloud.farthest_point_down_sample(num_samples=len(keypoints.points))
 
         o3d.io.write_point_cloud(os.path.join(args.save_root, "keypoints", f"kpts_{obj_idx}.ply"), keypoints)
-        o3d.io.write_point_cloud(os.path.join(args.save_root, "randpoints", f"rpts_{obj_idx}.ply"), keypoints)
+        o3d.io.write_point_cloud(os.path.join(args.save_root, "randpoints", f"rpts_{obj_idx}.ply"), randpoints)
